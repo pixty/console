@@ -1,20 +1,46 @@
 package main
 
 import "github.com/jrivets/log4g"
+import "github.com/jrivets/inject"
+import "github.com/pixty/console/rapi"
+import "github.com/pixty/console/common"
 
 func main() {
-	injector := newInjector()
-
-	defer injector.shutdown()
-	defer log4g.Shutdown()
-
-	if cc.logConfigFN != "" {
-		log4g.ConfigF(cc.logConfigFN)
+	cc := initConsoleConfig()
+	if cc == nil {
+		return
 	}
 
-	injector.Register(&Component{Component: cc})
-	injector.construct()
+	initLoging(cc)
+	logger := log4g.GetLogger("console")
+	if cc.DebugMode {
+		log4g.SetLogLevel("console", log4g.DEBUG)
+		logger.Info("Running in DEBUG mode")
+	}
 
-	for {
+	injector := inject.NewInjector(log4g.GetLogger("console.injector"))
+
+	defer injector.Shutdown()
+	defer log4g.Shutdown()
+
+	restApi := rapi.NewAPI()
+	injector.RegisterMany(cc)
+	injector.RegisterMany(restApi)
+	injector.Construct()
+
+	restApi.Run()
+}
+
+func initConsoleConfig() *common.ConsoleConfig {
+	cc := common.NewConsoleConfig()
+	if !cc.ParseCLArgs() {
+		return nil
+	}
+	return cc
+}
+
+func initLoging(cc *common.ConsoleConfig) {
+	if cc.LogConfigFN != "" {
+		log4g.ConfigF(cc.LogConfigFN)
 	}
 }
