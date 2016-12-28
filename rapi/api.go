@@ -9,9 +9,11 @@ import "time"
 import "net/http"
 
 type api struct {
-	ge     *gin.Engine
-	Config *common.ConsoleConfig `inject:""`
-	logger log4g.Logger
+	ge         *gin.Engine
+	Config     *common.ConsoleConfig `inject:""`
+	OrgService common.OrgService     `inject:"orgService"`
+	CamService common.CameraService  `inject:"camService"`
+	logger     log4g.Logger
 }
 
 func NewAPI() *api {
@@ -29,6 +31,12 @@ func (a *api) DiPostConstruct() {
 	a.logger.Info("Constructing ReST API")
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.ping(c) })
+	a.endpoint("GET", "/organizations/:orgId/cameras", func(c *gin.Context) { a.orgCameras(c, common.Id(c.Param("orgId"))) })
+	//a.endpoint("GET", "/cameras/:camId", func(c *gin.Context) { a.ping(c) })
+}
+
+func (a *api) String() string {
+	return "api: {}"
 }
 
 // Will block invoker until an error happens
@@ -37,6 +45,11 @@ func (a *api) Run() {
 	port := strconv.FormatInt(int64(a.Config.HttpPort), 10)
 	a.logger.Info("Running API on ", port)
 	graceful.Run(":"+port, 100*time.Millisecond, a.ge)
+}
+
+func (a *api) orgCameras(c *gin.Context, orgId common.Id) {
+	result := a.CamService.GetByOrgId(orgId)
+	c.JSON(http.StatusOK, result)
 }
 
 func (a *api) ping(c *gin.Context) {

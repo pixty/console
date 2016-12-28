@@ -4,6 +4,7 @@ import "github.com/jrivets/log4g"
 import "github.com/jrivets/inject"
 import "github.com/pixty/console/rapi"
 import "github.com/pixty/console/common"
+import "github.com/pixty/console/service"
 
 func main() {
 	cc := initConsoleConfig()
@@ -24,8 +25,11 @@ func main() {
 	defer log4g.Shutdown()
 
 	restApi := rapi.NewAPI()
-	injector.RegisterMany(cc)
-	injector.RegisterMany(restApi)
+	camService := service.NewDefaultCameraService()
+	orgService := service.NewDefaultOrgService()
+	injector.RegisterMany(cc, restApi)
+	injector.RegisterOne(camService, "camService")
+	injector.RegisterOne(orgService, "orgService")
 	injector.Construct()
 
 	restApi.Run()

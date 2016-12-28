@@ -6,6 +6,7 @@ const (
 	CnConsoleConfig = "ConsoleConfig"
 
 	// *** Component phases ***
+	CMP_PHASE_DB = 1
 )
 
 type ConsoleConfig struct {
@@ -17,12 +18,22 @@ type ConsoleConfig struct {
 
 	// Debug mode
 	DebugMode bool
+
+	// Persistence settings
+	MongoAddress    string
+	MongoTimeoutSec int
+	MongoDatabase   string
+	MongoUser       string
+	MongoPasswd     string
 }
 
 // Set up default config values
 func NewConsoleConfig() *ConsoleConfig {
 	cc := &ConsoleConfig{}
 	cc.HttpPort = 8080
+	cc.MongoAddress = "127.0.0.1:27017"
+	cc.MongoTimeoutSec = 60
+	cc.MongoDatabase = "pixty"
 	return cc
 }
 
