@@ -12,7 +12,7 @@ $ mkdir $GOPATH/src/github.com/pixty
 $ cd $GOPATH/src/github.com/pixty
 $ git clone git@github.com:pixty/console.git
 ```
--  Complile the console:
+-  Compile the console:
 ```
 $ go get
 $ go build -v ./...
