@@ -49,8 +49,10 @@ The command above will run console in container listening on port 8080, which is
  
 ### Run the console using development environment
 If you would like to run the console locally please do the following:
+
 1. Install the [Development environment](#development-environment)
 2. Run the console:
+
 ```
 $ console -debug
 ```
