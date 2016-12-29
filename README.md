@@ -3,19 +3,21 @@ This is a GO project which provides Pixty ReST API.
 
 # Development environment
 If you want to make changes in console you need to set-up it locally, if you just want to run the console you can use latest docker image (see [Run the console using Docker](#run-the-console-using-docker))
-1. Install golang (version 1.7 or greater)
-2. Clone pixty-console project from github.com:
+
+- Install golang (version 1.7 or greater)
+- Clone pixty-console project from github.com:
+
 ```
 $ mkdir $GOPATH/src/github.com/pixty
 $ cd $GOPATH/src/github.com/pixty
 $ git clone git@github.com:pixty/console.git
 ```
-3.  Complile the console:
+-  Complile the console:
 ```
 $ go get
 $ go build -v ./...
 ```
-4.  Now you can run console locally:
+-  Now you can run console locally:
 ```
 $ console -help
 ...
