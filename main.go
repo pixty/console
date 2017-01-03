@@ -27,9 +27,14 @@ func main() {
 	restApi := rapi.NewAPI()
 	camService := service.NewDefaultCameraService()
 	orgService := service.NewDefaultOrgService()
+	imgService := service.NewDefaultImageService()
+	lbs := service.NewLfsBlobStorage()
+
 	injector.RegisterMany(cc, restApi)
 	injector.RegisterOne(camService, "camService")
 	injector.RegisterOne(orgService, "orgService")
+	injector.RegisterOne(imgService, "imgService")
+	injector.RegisterOne(lbs, "blobStorage")
 	injector.Construct()
 
 	restApi.Run()
