@@ -35,7 +35,7 @@ func (a *api) DiPostConstruct() {
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.ping(c) })
 	a.endpoint("GET", "/organizations/:orgId/cameras", func(c *gin.Context) { a.getOrgCameras(c, common.Id(c.Param("orgId"))) })
 
-	a.endpoint("POST", "/images/", func(c *gin.Context) { a.newImage(c) })
+	a.endpoint("POST", "/images", func(c *gin.Context) { a.newImage(c) })
 	a.endpoint("GET", "/images/:imgId", func(c *gin.Context) { a.getImageById(c, common.Id(c.Param("imgId"))) })
 	//a.endpoint("GET", "/cameras/:camId", func(c *gin.Context) { a.ping(c) })
 }
@@ -67,13 +67,17 @@ func (a *api) getOrgCameras(c *gin.Context, orgId common.Id) {
 
 // POST /images
 func (a *api) newImage(c *gin.Context) {
-	a.logger.Debug("POST /images/")
+	a.logger.Debug("POST /images")
 
 	iDesc := &common.ImageDescriptor{CamId: "c1"}
-	file, header, err := c.Request.FormFile("upload")
-	if err == nil {
-		iDesc.FileName = header.Filename
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		a.logger.Error("could not obtain file for upload err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
 	}
+
+	iDesc.FileName = header.Filename
 	iDesc.Timestamp = common.CurrentTimestamp()
 	iDesc.Reader = file
 

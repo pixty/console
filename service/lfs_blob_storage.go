@@ -77,6 +77,11 @@ func (lbs *LfsBlobStorage) DiShutdown() {
 
 // ============================= BlobStorage =================================
 func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, error) {
+	if r == nil {
+		lbs.logger.Error("reader (r) is nil ")
+		return common.ID_NULL, errors.New("reader cannot be nil")
+	}
+
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
 
@@ -163,6 +168,7 @@ func (lbs *LfsBlobStorage) readObjects() error {
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
+	decoder.UseNumber()
 	err = decoder.Decode(&lbs.objects)
 	if err != nil {
 		lbs.logger.Error("Could not deserialize JSON content of ", lbs.metaFN, " seems unrecoverable error=", err)
