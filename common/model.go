@@ -15,6 +15,7 @@ const (
 type Storage int
 
 const (
+	// Storage types. Used to receive CrudExecutor instance for the sotrage
 	STGE_ORGANIZATION = iota + 1
 	STGE_CAMERA
 	STGE_PERSON
@@ -23,20 +24,24 @@ const (
 )
 
 type (
+	IdentifiedObject struct {
+		Id Id `bson:"_id" json:"id"`
+	}
+
 	Organization struct {
-		Id       Id       `bson:"_id"`
+		IdentifiedObject
 		Name     string   `bson:"name"`
 		Metadata []string `bson:"metadata"`
 	}
 
 	Camera struct {
-		Id    Id     `bson:"_id" json:"id"`
+		IdentifiedObject
 		OrgId Id     `bson:"orgId" json:"orgId"`
 		Name  string `bson:"name" json:"name"`
 	}
 
 	Person struct {
-		Id Id `bson:"_id"`
+		IdentifiedObject
 	}
 
 	PersonOrgInfo struct {

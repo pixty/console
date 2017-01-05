@@ -14,3 +14,7 @@ func NewDefaultOrgService() *DefaultOrgService {
 func (orgS *DefaultOrgService) GetById(OrgId common.Id) *common.Organization {
 	return nil
 }
+
+func (orgS *DefaultOrgService) GetPersons(OrgId common.Id, PIds ...common.Id) []*common.PersonOrgInfo {
+	return nil
+}

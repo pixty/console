@@ -19,11 +19,13 @@ type ISO8601Time time.Time
 type (
 	OrgService interface {
 		GetById(OrgId Id) *Organization
+		GetPersons(OrgId Id, PIds ...Id) []*PersonOrgInfo
 	}
 
 	CameraService interface {
 		GetById(CamId Id) *Camera
 		GetByOrgId(OrgId Id) []*Camera
+		GetScene(CamId Id) []*PersonLog
 	}
 
 	ImageDescriptor struct {
