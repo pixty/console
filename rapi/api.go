@@ -8,6 +8,7 @@ import "gopkg.in/tylerb/graceful.v1"
 import "time"
 import "net/http"
 import "io"
+import "path"
 
 type api struct {
 	ge         *gin.Engine
@@ -84,6 +85,10 @@ func (a *api) newImage(c *gin.Context) {
 	id, err := a.ImgService.New(iDesc)
 	c.Status(http.StatusCreated)
 	a.logger.Info("New image with id=", id, " is created")
+
+	r := c.Request
+	w := c.Writer
+	w.Header().Set("Location", composeURI(r, string(id)))
 }
 
 // GET /images/:imgId
@@ -101,6 +106,8 @@ func (a *api) getImageById(c *gin.Context, imgId common.Id) {
 	rd := imgD.Reader.(io.ReadSeeker)
 	ts := imgD.Timestamp
 
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
+
 	http.ServeContent(w, r, fn, ts.ToTime(), rd)
 }
 
@@ -115,4 +122,14 @@ func (a *api) endpoint(method string, relativePath string, handlers ...gin.Handl
 		a.logger.Error("Unknonwn method ", method)
 		panic("cannot register endpoint: " + method + " " + relativePath)
 	}
+}
+
+func composeURI(r *http.Request, id string) string {
+	var resURL string
+	if r.URL.IsAbs() {
+		resURL = path.Join(r.URL.String(), id)
+	} else {
+		resURL = path.Join(r.Host, r.URL.String(), id)
+	}
+	return resURL
 }
