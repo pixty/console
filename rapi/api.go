@@ -16,6 +16,7 @@ type api struct {
 	OrgService common.OrgService     `inject:"orgService"`
 	CamService common.CameraService  `inject:"camService"`
 	ImgService common.ImageService   `inject:"imgService"`
+	CtxFactory common.ContextFactory `inject:"ctxFactory"`
 	logger     log4g.Logger
 }
 
@@ -38,7 +39,7 @@ func (a *api) DiPostConstruct() {
 
 	a.endpoint("POST", "/images", func(c *gin.Context) { a.newImage(c) })
 	a.endpoint("GET", "/images/:imgId", func(c *gin.Context) { a.getImageById(c, common.Id(c.Param("imgId"))) })
-	//a.endpoint("GET", "/cameras/:camId", func(c *gin.Context) { a.ping(c) })
+	a.endpoint("GET", "/cameras/:camId", func(c *gin.Context) { a.getSceneByCamId(c, common.Id(c.Param("camId"))) })
 }
 
 func (a *api) String() string {
@@ -109,6 +110,17 @@ func (a *api) getImageById(c *gin.Context, imgId common.Id) {
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
 
 	http.ServeContent(w, r, fn, ts.ToTime(), rd)
+}
+
+// GET /cameras/:camId
+func (a *api) getSceneByCamId(c *gin.Context, camId common.Id) {
+	a.logger.Debug("GET /cameras/", camId)
+
+	ctx := a.CtxFactory.NewContext()
+	defer ctx.Close()
+
+	//pls := a.CamService.GetScene(ctx, camId)
+
 }
 
 func (a *api) endpoint(method string, relativePath string, handlers ...gin.HandlerFunc) {

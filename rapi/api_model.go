@@ -23,7 +23,9 @@ type (
 	}
 
 	Person struct {
-		Id       common.Id        `json:"id"`
+		Id common.Id `json:"id"`
+
+		// Contains list of organiations where the person has attributes
 		OrgsData []*OrgAttributes `json:"orgsData"`
 	}
 
