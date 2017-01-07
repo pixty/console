@@ -89,10 +89,18 @@ func CurrentTimestamp() Timestamp {
 	return ToTimestamp(time.Now())
 }
 
+func CurrentISO8601Time() ISO8601Time {
+	return ISO8601Time(time.Now())
+}
+
 func ToTimestamp(t time.Time) Timestamp {
 	return Timestamp(t.UnixNano())
 }
 
 func (t Timestamp) ToTime() time.Time {
 	return time.Unix(0, int64(t))
+}
+
+func (t Timestamp) ToISO8601Time() ISO8601Time {
+	return ISO8601Time(t.ToTime())
 }

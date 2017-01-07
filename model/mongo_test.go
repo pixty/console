@@ -5,7 +5,7 @@ import "github.com/pixty/console/common"
 import "github.com/jrivets/log4g"
 import "strconv"
 
-func Te____stGetLatestScene(t *testing.T) {
+func TestGetLatestScene(t *testing.T) {
 	mp := NewMongoPersister()
 	mp.Config = common.NewConsoleConfig()
 	mp.Config.MongoDatabase = "__pixty__test__"

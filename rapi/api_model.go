@@ -10,16 +10,11 @@ type (
 	}
 
 	ScenePerson struct {
-		Person       *Person            `json:"person"`
-		OnSceneSince common.ISO8601Time `json:"onSceneSince"`
-		PicId        common.Id          `json:"picId"`
-		PicTime      common.ISO8601Time `json:"picTime"`
-		PicPos       *Position          `json:"picPos"`
-	}
-
-	Position struct {
-		X int `json:"x"`
-		Y int `json:"y"`
+		Person     *Person            `json:"person"`
+		CapturedAt common.ISO8601Time `json:"capturedAt"`
+		PicId      common.Id          `json:"picId"`
+		PicTime    common.ISO8601Time `json:"picTime"`
+		PicPos     *common.Point      `json:"picPos"`
 	}
 
 	Person struct {

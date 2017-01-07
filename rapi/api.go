@@ -119,8 +119,8 @@ func (a *api) getSceneByCamId(c *gin.Context, camId common.Id) {
 	ctx := a.CtxFactory.NewContext()
 	defer ctx.Close()
 
-	//pls := a.CamService.GetScene(ctx, camId)
-
+	pls := a.CamService.GetScene(ctx, camId)
+	c.JSON(http.StatusOK, a.toScene(camId, pls))
 }
 
 func (a *api) endpoint(method string, relativePath string, handlers ...gin.HandlerFunc) {
@@ -134,6 +134,29 @@ func (a *api) endpoint(method string, relativePath string, handlers ...gin.Handl
 		a.logger.Error("Unknonwn method ", method)
 		panic("cannot register endpoint: " + method + " " + relativePath)
 	}
+}
+
+func (a *api) toScene(camId common.Id, pl []*common.PersonLog) *Scene {
+	var persons []*ScenePerson
+	scTime := common.CurrentISO8601Time()
+	if pl != nil && len(pl) != 0 {
+		scTime = pl[0].SceneTs.ToISO8601Time()
+		persons = make([]*ScenePerson, 0, len(pl))
+		for _, p := range pl {
+			persons = append(persons, a.toScenePerson(p))
+		}
+	}
+	return &Scene{CamId: camId, Timestamp: scTime, Persons: persons}
+}
+
+func (a *api) toScenePerson(p *common.PersonLog) *ScenePerson {
+	res := &ScenePerson{}
+	res.Person = &Person{Id: p.PersonId}
+	res.CapturedAt = p.CaptureTs.ToISO8601Time()
+	res.PicId = p.Snapshot.ImageId
+	res.PicPos = &p.Snapshot.Position
+	res.PicTime = p.Snapshot.Timestamp.ToISO8601Time()
+	return res
 }
 
 func composeURI(r *http.Request, id string) string {

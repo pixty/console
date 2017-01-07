@@ -2,17 +2,6 @@ package common
 
 import "fmt"
 
-// A person state on a scene. This states are used in Person log message
-// to identify status of the the record
-const (
-	// This is when the person was captured first time on the scene
-	PS_CAPTURE = iota + 1
-	// This is an intermediate snapshot of the person on the scene
-	PS_SCENE
-	// This state indicates a moment when the person was gone from the scene
-	PS_GONE
-)
-
 // Represents storage types
 type Storage int
 
@@ -53,19 +42,23 @@ type (
 	}
 
 	Point struct {
-		X int `bson:"x"`
-		Y int `bson:"y"`
+		X int `json:"x" bson:"x"`
+		Y int `json:"y" bson:"y"`
 	}
 
 	SnapshotImage struct {
-		ImageId  string `bson:"imgId"`
-		Position Point  `bson:"pos"`
+		ImageId Id `bson:"imgId"`
+
+		// Indicates the time when the snapshot was made
+		Timestamp Timestamp `bson:"ts"`
+		Position  Point     `bson:"pos"`
 	}
 
 	// The PersonLog is a structure that describes a person, who is on the scene
 	// The Structure is constructed by FrameProcessor and supposed to be persisted
 	// by CameraService.
 	PersonLog struct {
+		IO
 
 		// PersonId contains information about the recognized person. The field
 		// is always nil immediately after creation and it is not filled by FrameProcessor
@@ -78,23 +71,27 @@ type (
 		// filled by FrameProcessor and can be used to distinguish same unrecognized
 		// persons yet. This value indicates an initial attempt to identify
 		// a person. FrameProcessor will try to keep same value for the same
-		// person on a scene, but it is not always true. So same persons can have
-		// different values for the DetectionId
+		// person. The person with same DetectionId can appear on multiple scenes,
+		// but same person never has different values of the filed on same scene.
 		DetectionId Id            `bson:"dId"`
 		CamId       Id            `bson:"camId"`
 		OrgId       Id            `bson:"orgId"`
 		Snapshot    SnapshotImage `bson:"snapshot"`
 
-		// The SnapshotTs is a timestamp when the snapshot has been made
-		SnapshotTs Timestamp `bson:"snTs"`
+		// The OnSceneTs contains a time when the person has been captured by the
+		// camera first time. This value is always same with the SceneTs when the
+		// person has appeared first.
+		CaptureTs Timestamp `bson:"captureTs"`
 
 		// The SceneTs is a timestamp when the scene has been changed. The field
 		// is filled by FrameProcessor and can be used to distinguish scene states
 		// Scene state is changed every time when FrameProcessor concludes that
 		// one of the following happens: (1) a new person appears on the scene
-		// (2) a person is disappeared from the scene
+		// (2) a person is disappeared from the scene.
+		// Every time, when FrameProcessor forms new scene it provides the whole list
+		// of persons for the new scene. So some persons can come from the previous
+		// scene
 		SceneTs Timestamp `bson:"sceneTs"`
-		State   int       `bson:"state"`
 	}
 )
 

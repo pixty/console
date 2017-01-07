@@ -23,17 +23,37 @@ func (camS *DefaultCameraService) GetByOrgId(OrgId common.Id) []*common.Camera {
 
 func (camS *DefaultCameraService) GetScene(ctx *common.Context, camId common.Id) []*common.PersonLog {
 	txP := ctx.TxPersister()
+	var res []*common.PersonLog
 	pl, err := txP.GetLatestScene(camId)
-	if err != nil {
+	if err == nil {
+		// Scene can contain several snapshots for the same person. We don't want
+		// to return all of them, but will provide only latest one. Latest snapshot
+		// comes first and we can remove other ones.
+		m := make(map[common.Id]*common.PersonLog)
+		for _, p := range pl {
+			_, ok := m[p.DetectionId]
+			if !ok {
+				m[p.DetectionId] = p
+			}
+		}
+
+		res = make([]*common.PersonLog, 0, len(m))
+		for _, p := range m {
+			res = append(res, p)
+		}
+	} else {
 		camS.logger.Error("Oops, something goes wrong when we try to get the scene: camId=", camId, ", err=", err)
 	}
-	return pl
+	return res
 }
 
 func (camS *DefaultCameraService) UpdateScene(ctx *common.Context, plogs []*common.PersonLog) {
+	camS.logger.Debug("Updating scene ", plogs)
 	txP := ctx.TxPersister()
 	dao := txP.GetCrudExecutor(common.STGE_PERSON_LOG)
-	for pl := range plogs {
-		dao.Create(pl)
+	objs := make([]interface{}, 0, len(plogs))
+	for _, p := range plogs {
+		objs = append(objs, p)
 	}
+	dao.CreateMany(objs...)
 }
