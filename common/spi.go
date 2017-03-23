@@ -1,22 +1,24 @@
 package common
 
-import "time"
-import "fmt"
-import "io"
-import "github.com/satori/go.uuid"
-import "os"
+import (
+	"fmt"
+	"io"
+	"os"
+	"time"
 
-const (
-	ID_NULL = ""
+	"github.com/satori/go.uuid"
 )
 
-type Id string
-
-// Timestamp is a time in nanoseconds...
-type Timestamp int64
-type ISO8601Time time.Time
-
 type (
+
+	// Various Identificators
+	Id string
+
+	// Timestamp is a time in milliseconds
+	Timestamp int64
+
+	ISO8601Time time.Time
+
 	OrgService interface {
 		GetById(OrgId Id) *Organization
 		GetPersons(OrgId Id, PIds ...Id) []*PersonOrgInfo
@@ -57,6 +59,10 @@ type (
 		// Deletes an object by its id. Returns error != nil if the object is not found
 		Delete(objId Id) error
 	}
+)
+
+const (
+	ID_NULL = ""
 )
 
 func (t ISO8601Time) MarshalJSON() ([]byte, error) {

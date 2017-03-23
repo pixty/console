@@ -1,54 +1,49 @@
 package service
 
-import "github.com/pixty/console/common"
-import "github.com/jrivets/log4g"
-import "io"
-import "os"
-import "path/filepath"
-import "encoding/json"
-import "errors"
-import "sync"
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jrivets/log4g"
+	"github.com/pixty/console/common"
+)
 
 const cMetaFileName = ".meta"
 
 type LfsBlobStorage struct {
 	logger   log4g.Logger
-	Config   *common.ConsoleConfig `inject:""`
 	objects  map[common.Id]*common.BlobMeta
 	metaFN   string
 	storeDir string
-	init     bool
 	rwLock   sync.RWMutex
+	lastSave time.Time
 }
 
-func NewLfsBlobStorage() *LfsBlobStorage {
+func NewLfsBlobStorage(storeDir string) *LfsBlobStorage {
 	logger := log4g.GetLogger("console.service.LFSBlobStorage")
-	return &LfsBlobStorage{logger: logger}
+	result := &LfsBlobStorage{logger: logger, storeDir: storeDir}
+	err := result.init()
+	if err != nil {
+		panic(err)
+	}
+	return result
 }
 
 // ============================= LifeCycler ==================================
-func (lbs *LfsBlobStorage) DiPhase() int {
-	return common.CMP_PHASE_BLOB_STORE
-}
-
-func (lbs *LfsBlobStorage) DiInit() error {
+func (lbs *LfsBlobStorage) init() error {
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
-
-	if lbs.init {
-		lbs.logger.Error("Unexpected state. Already initialized ", lbs)
-		return errors.New("LfsBlobStorage already initialized")
-	}
 
 	lbs.objects = make(map[common.Id]*common.BlobMeta)
 
 	lbs.logger.Info("Initializing...")
-	if lbs.Config.LbsDir == "" {
-		lbs.logger.Error("Expecting not empty storage directory")
-		return errors.New("LfsBlobStorage expects not empty storage directory")
-	}
-
-	path := lbs.Config.LbsDir
+	path := lbs.storeDir
 	if !common.DoesFileExist(path) {
 		lbs.logger.Info("Could not find directory ", path, " creating new one...")
 		err := os.MkdirAll(path, os.ModePerm)
@@ -60,18 +55,14 @@ func (lbs *LfsBlobStorage) DiInit() error {
 
 	lbs.metaFN = filepath.Join(path, cMetaFileName)
 	lbs.storeDir = path
-	lbs.init = true
 	return lbs.readObjects()
 }
 
-func (lbs *LfsBlobStorage) DiShutdown() {
+func (lbs *LfsBlobStorage) Shutdown() {
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
 
-	if !lbs.init {
-		lbs.logger.Error("Unexpected state. Not initialized ", lbs)
-	}
-	lbs.saveObjects()
+	lbs.saveObjects(false)
 	lbs.objects = nil
 }
 
@@ -82,19 +73,19 @@ func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, 
 		return common.ID_NULL, errors.New("reader cannot be nil")
 	}
 
-	lbs.rwLock.Lock()
-	defer lbs.rwLock.Unlock()
-
-	lbs.checkStarted()
-
 	id := common.NewId()
-	fileName := filepath.Join(lbs.storeDir, string(id))
+	fileName, err := lbs.getFilePath(id)
+	if err != nil {
+		lbs.logger.Error("Could not create path for id=", id)
+		return common.ID_NULL, err
+	}
+
+	//fileName := filepath.Join(lbs.storeDir, string(id))
 	file, err := os.Create(fileName)
 	if err != nil {
 		lbs.logger.Error("Could not create new file ", fileName)
 		return common.ID_NULL, err
 	}
-
 	defer file.Close()
 
 	_, err = io.Copy(file, r)
@@ -103,18 +94,24 @@ func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, 
 		return common.ID_NULL, err
 	}
 
+	lbs.rwLock.Lock()
+	defer lbs.rwLock.Unlock()
+
 	lbs.objects[id] = bMeta
 	lbs.logger.Info("New BLOB with id=", id, " is created. file=", fileName)
+	lbs.saveObjects(true)
 	return id, nil
 }
 
 func (lbs *LfsBlobStorage) Read(objId common.Id) (io.ReadCloser, *common.BlobMeta) {
+	fileName, err := lbs.getFilePath(string(objId))
+	if err != nil {
+		lbs.logger.Error("Could not form path for id=", objId, ", err=", err)
+		return nil, nil
+	}
+
 	lbs.rwLock.RLock()
 	defer lbs.rwLock.RUnlock()
-
-	lbs.checkStarted()
-
-	fileName := filepath.Join(lbs.storeDir, string(objId))
 
 	bMeta, ok := lbs.objects[objId]
 	if !ok {
@@ -135,12 +132,16 @@ func (lbs *LfsBlobStorage) Read(objId common.Id) (io.ReadCloser, *common.BlobMet
 }
 
 func (lbs *LfsBlobStorage) Delete(objId common.Id) error {
+	fileName, err := lbs.getFilePath(string(objId))
+	if err != nil {
+		lbs.logger.Error("Could not form path for id=", objId, ", err=", err)
+		return err
+	}
+
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
 
 	lbs.logger.Info("Deleting BLOB by id=", objId)
-
-	fileName := filepath.Join(lbs.storeDir, string(objId))
 	_, ok := lbs.objects[objId]
 	if !ok {
 		lbs.logger.Warn("Could not find BLOB by id=", objId)
@@ -179,7 +180,14 @@ func (lbs *LfsBlobStorage) readObjects() error {
 	return nil
 }
 
-func (lbs *LfsBlobStorage) saveObjects() {
+func (lbs *LfsBlobStorage) saveObjects(checkTime bool) {
+	now := time.Now()
+	if checkTime && now.Sub(lbs.lastSave) < time.Minute {
+		lbs.logger.Debug("Skip save metadata due to timeout")
+		return
+	}
+	lbs.lastSave = now
+
 	_, err := os.Stat(lbs.metaFN)
 	if err == nil {
 		err := os.Remove(lbs.metaFN)
@@ -197,7 +205,12 @@ func (lbs *LfsBlobStorage) saveObjects() {
 
 	defer file.Close()
 
-	lbs.logger.Info("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
+	if checkTime {
+		lbs.logger.Debug("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
+	} else {
+		lbs.logger.Info("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
+	}
+
 	encoder := json.NewEncoder(file)
 	err = encoder.Encode(lbs.objects)
 	if err != nil {
@@ -205,8 +218,17 @@ func (lbs *LfsBlobStorage) saveObjects() {
 	}
 }
 
-func (lbs *LfsBlobStorage) checkStarted() {
-	if !lbs.init {
-		panic("The LfsBlobStorage is not initialized.")
+func (lbs *LfsBlobStorage) getFilePath(id string) (string, error) {
+	length := len(id)
+	suffix := id[lenght-2 : length]
+	path := filepath.Join(lbs.storeDir, suffix)
+	if !common.DoesFileExist(path) {
+		lbs.logger.Info("Could not find directory ", path, " creating new one...")
+		err := os.MkdirAll(path, os.ModePerm)
+		if err != nil {
+			lbs.logger.Error("Could not create storage directory ", path, " got the error=", err)
+			return "", err
+		}
 	}
+	return filepath.Join(path, id), nil
 }

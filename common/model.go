@@ -1,124 +1,161 @@
 package common
 
-import "fmt"
+import (
+	"fmt"
 
-// Represents storage types
-type Storage int
-
-const (
-	// Storage types. Used to receive CrudExecutor instance for the sotrage
-	STGE_ORGANIZATION = iota + 1
-	STGE_CAMERA
-	STGE_PERSON
-	STGE_PERSON_ORG
-	STGE_PERSON_LOG
+	"github.com/pixty/fpcp"
+	"golang.org/x/net/context"
 )
 
 type (
-	// Identified Object
+	// Version, could be used by DB's supported CAS ops (like mongo)
+	Version int64
+
+	// Identified Object. Most DO inherits it
 	IO struct {
 		Id Id `bson:"_id" json:"id"`
 	}
 
+	// Organization DO.
 	Organization struct {
 		IO
 		Name     string   `bson:"name"`
 		Metadata []string `bson:"metadata"`
 	}
 
+	// Camera DO
 	Camera struct {
 		IO
 		OrgId Id     `bson:"orgId" json:"orgId"`
 		Name  string `bson:"name" json:"name"`
 	}
 
+	// Point on a 2D plane
+	Point struct {
+		X int `json:"x" bson:"x"`
+		Y int `json:"y" bson:"y"`
+	}
+
+	// A rectangle on a 2D plane
+	Rectangle struct {
+		LeftTop     Point `json:"leftTop" bson:"leftTop"`
+		RightBottom Point `json:"rightBottom" bson:"rightBottom"`
+	}
+
+	// A face picture reference
+	FacePic struct {
+		ImageId Id        `bson:"imgId"`
+		Rect    Rectangle `bson:"rect"`
+	}
+
+	// Person DO. The Person describes an known person persisted in the Pixty
+	// DB. This object is not one, which we receives from Frame Processor (FP),
+	// but what Pixty knows and will recognize among faces received from FP
 	Person struct {
 		IO
 	}
 
+	// An organization person's information
 	PersonOrgInfo struct {
 		PersonId Id                `bson:"pId"`
 		OrgId    Id                `bson:"orgId"`
 		Metadata map[string]string `bson:"meta"`
 	}
 
-	Point struct {
-		X int `json:"x" bson:"x"`
-		Y int `json:"y" bson:"y"`
-	}
-
-	Rectangle struct {
-		LeftTop     Point `json:"leftTop" bson:"leftTop"`
-		RightBottom Point `json:"rightBottom" bson:"rightBottom"`
-	}
-
-	SnapshotImage struct {
-		ImageId Id `bson:"imgId"`
-
-		// Indicates the time when the snapshot was made
-		Timestamp Timestamp `bson:"ts"`
-		Rect      Rectangle `bson:"rect"`
-	}
-
-	// The PersonLogRecord is a structure which describes a person, who is on the scene
-	// The Structure is constructed by FrameProcessor and supposed to be persisted
-	// by CameraService.
-	PersonLogRecord struct {
+	// The Scene DO describes scenes reported by a Frame Processor (FP). The
+	// structure contains some information received directly from FP and some
+	// information, which will be populated after. Scene Processor (SP) will
+	// monitor this structures and will handle them controlling the "State"
+	// field.
+	//
+	// The typical scheme is as following: New scene record appears as soon as
+	// FP reports it. It is persisted and left untouched until SP comes and checks it.
+	// The SP will build associations between persons found by FP and Pixty DB,
+	// it will populate PersonsIds fields and update the record Status. For
+	// more details see how the SP works.
+	Scene struct {
 		IO
 
-		// PersonId contains information about the recognized person. The field
-		// is always nil immediately after creation and it is not filled by FrameProcessor
-		// The FrameProcessor assigns DetectionId instead as a first step of
-		// process recognition person. The PersonId will be found and assigned
-		// later by special recurring process which tries to recognize persons
-		PersonId Id `json:"pId" bson:"pId"`
+		// Scene beginning time. Populated by FP as soon as scene catched up.
+		Timestamp Timestamp `bson:"timestamp"`
 
-		// DetectionId contains information about detected person. The value is
-		// filled by FrameProcessor and can be used to distinguish same unrecognized
-		// persons yet. This value indicates an initial attempt to identify
-		// a person. FrameProcessor will try to keep same value for the same
-		// person. The person with same DetectionId can appear on multiple scenes,
-		// but same person never has different values of the filed on same scene.
-		DetectionId Id            `bson:"dId"`
-		CamId       Id            `bson:"camId"`
-		OrgId       Id            `bson:"orgId"`
-		Snapshot    SnapshotImage `bson:"snapshot"`
+		// List of Persons found by FP. The field can be updated after the scene
+		// is created. FP can report new images for found persons. All information
+		// in the field relates to FP DB. For instance, person Ids are not Pixty's
+		// Person's Ids, but FP's ones. SP will recognize this persons
+		// and build associations between the FP persons and Pixty's DB.
+		FpPersons []fpcp.Person `bson:"fpPersons"`
 
-		// The FirstSeenAt contains a time when the person has been captured by the
-		// camera first time. This value is always same with the SceneTs when the
-		// person has appeared first.
-		FirstSeenAt Timestamp `bson:"firstSeenAt"`
+		// Pixty persons associated with the scene
+		PersonsIds []Id       `bson:"personsIds"`
+		CamId      Id         `bson:"camId"`
+		OrgId      Id         `bson:"orgId"`
+		State      SceneState `bson:"state"`
+		Version    Version    `bson:"version"`
+	}
 
-		// The SceneTs is a timestamp when the scene has been changed. The field
-		// is filled by FrameProcessor and can be used to distinguish scene states
-		// Scene state is changed every time when FrameProcessor concludes that
-		// one of the following happens: (1) a new person appears on the scene
-		// (2) a person is disappeared from the scene.
-		// Every time, when FrameProcessor forms new scene it provides the whole list
-		// of persons for the new scene. So some persons can come from the previous
-		// scene
-		SceneTs Timestamp `bson:"sceneTs"`
+	// The Fp2Sp DO keeps association between FP to SP data. This is a temporary
+	// information which is used by SP for building association between data received
+	// froom FP and Pixty data.
+	Fp2Sp struct {
+		CamId      Id
+		FpPersonId Id
+		PersonId   Id
+		ImagesMap  map[Id]Id
+		// Populated by SP if the person is not found in last reported scene
+		FpClosed bool
+		// Populated by SP if it is done with the person completely.
+		SpClosedAt Timestamp
+	}
+
+	// Represents storage types. Can be mapped to DB tables, please see
+	// STGE_ - constants below.
+	Storage int
+
+	// Scene state. Used by state processor to handle persons on the scene and
+	// build persons association.
+	SceneState int
+
+	// Persister is an interface which provides an access to persistent layer
+	Persister interface {
+		NewTxPersister(ctx context.Context) TxPersister
+	}
+
+	// An transactional persister (has context dependant time)
+	TxPersister interface {
+		GetCrudExecutor(storage Storage) CrudExecutor
+		Close()
+	}
+
+	CrudExecutor interface {
+		NewId() Id
+		Create(o interface{}) error
+		CreateMany(objs ...interface{}) error
+		Read(id Id) interface{}
+		Update(o interface{}) error
+		Delete(id Id) error
 	}
 )
 
-type CrudExecutor interface {
-	NewId() Id
-	Create(o interface{}) error
-	CreateMany(objs ...interface{}) error
-	Read(id Id) interface{}
-	Update(o interface{}) error
-	Delete(id Id) error
-}
+// Storage types. Used to receive CrudExecutor instance for the sotrage
+const (
+	STGE_ORGANIZATION = iota + 1
+	STGE_CAMERA
+	STGE_PERSON
+	STGE_PERSON_ORG
+	STGE_SCENE
+	STGE_FP2SP
+)
 
-type Persister interface {
-	NewTxPersister() TxPersister
-}
-
-type TxPersister interface {
-	GetCrudExecutor(storage Storage) CrudExecutor
-	GetLatestScene(camId Id) ([]*PersonLog, error)
-	Close()
-}
+// Scene states. Used by State Processor to check and process scenes
+const (
+	// New scene, some actions are required
+	SS_NEW = iota + 1
+	// All people associations are found, but scene could be updated
+	SS_IDENTIFIED
+	// The Scene Processor closed the scene and no updates are expected
+	SS_COMPLETED
+)
 
 func (pl *PersonLog) String() string {
 	return fmt.Sprintf("%+v", *pl)
