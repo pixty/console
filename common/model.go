@@ -15,6 +15,7 @@ const (
 )
 
 type (
+	// Identified Object
 	IO struct {
 		Id Id `bson:"_id" json:"id"`
 	}
@@ -46,18 +47,23 @@ type (
 		Y int `json:"y" bson:"y"`
 	}
 
+	Rectangle struct {
+		LeftTop     Point `json:"leftTop" bson:"leftTop"`
+		RightBottom Point `json:"rightBottom" bson:"rightBottom"`
+	}
+
 	SnapshotImage struct {
 		ImageId Id `bson:"imgId"`
 
 		// Indicates the time when the snapshot was made
 		Timestamp Timestamp `bson:"ts"`
-		Position  Point     `bson:"pos"`
+		Rect      Rectangle `bson:"rect"`
 	}
 
-	// The PersonLog is a structure that describes a person, who is on the scene
+	// The PersonLogRecord is a structure which describes a person, who is on the scene
 	// The Structure is constructed by FrameProcessor and supposed to be persisted
 	// by CameraService.
-	PersonLog struct {
+	PersonLogRecord struct {
 		IO
 
 		// PersonId contains information about the recognized person. The field
@@ -78,10 +84,10 @@ type (
 		OrgId       Id            `bson:"orgId"`
 		Snapshot    SnapshotImage `bson:"snapshot"`
 
-		// The OnSceneTs contains a time when the person has been captured by the
+		// The FirstSeenAt contains a time when the person has been captured by the
 		// camera first time. This value is always same with the SceneTs when the
 		// person has appeared first.
-		CaptureTs Timestamp `bson:"captureTs"`
+		FirstSeenAt Timestamp `bson:"firstSeenAt"`
 
 		// The SceneTs is a timestamp when the scene has been changed. The field
 		// is filled by FrameProcessor and can be used to distinguish scene states

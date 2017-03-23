@@ -38,7 +38,7 @@ type crudExec struct {
 }
 
 func NewMongoPersister() *MongoPersister {
-	return &MongoPersister{logger: log4g.GetLogger("console.mongo"), mlogger: log4g.GetLogger("console.mongo.mgo")}
+	return &MongoPersister{logger: log4g.GetLogger("console.mongo"), mlogger: log4g.GetLogger("mongo.mgo")}
 }
 
 // ============================= LifeCycler ==================================
@@ -154,6 +154,7 @@ func (tx *txPersister) GetLatestScene(camId common.Id) ([]*common.PersonLog, err
 		return nil, err
 	}
 
+	tx.mp.logger.Debug("GetLatestScene() for camId=", camId)
 	q := bson.M{}
 	q["camId"] = camId
 
@@ -172,8 +173,14 @@ func (tx *txPersister) GetLatestScene(camId common.Id) ([]*common.PersonLog, err
 
 		size := len(res)
 		if size == limit && res[0].SceneTs == res[size-1].SceneTs {
+			tx.mp.logger.Debug("Found ", size, " records and all of them are from the same scene. Looping...")
 			limit = limit << 1
 			continue
+		}
+
+		if size == 0 {
+			tx.mp.logger.Debug("Found 0 records for the camera")
+			return res, nil
 		}
 
 		idx := len(res) - 1

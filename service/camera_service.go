@@ -37,6 +37,7 @@ func (camS *DefaultCameraService) GetScene(ctx *common.Context, camId common.Id)
 			}
 		}
 
+		camS.logger.Debug("Found ", len(pl), " records for last scene, and ", len(m), " unique persons")
 		res = make([]*common.PersonLog, 0, len(m))
 		for _, p := range m {
 			res = append(res, p)
