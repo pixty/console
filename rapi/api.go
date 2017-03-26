@@ -1,14 +1,18 @@
 package rapi
 
-import "gopkg.in/gin-gonic/gin.v1"
-import "strconv"
-import "github.com/jrivets/log4g"
-import "github.com/pixty/console/common"
-import "gopkg.in/tylerb/graceful.v1"
-import "time"
-import "net/http"
-import "io"
-import "path"
+import (
+	"io"
+	"net/http"
+	"path"
+	"strconv"
+	"time"
+
+	"github.com/jrivets/log4g"
+	"github.com/pixty/console/common"
+	"golang.org/x/net/context"
+	"gopkg.in/gin-gonic/gin.v1"
+	"gopkg.in/tylerb/graceful.v1"
+)
 
 type api struct {
 	ge         *gin.Engine
@@ -16,7 +20,8 @@ type api struct {
 	OrgService common.OrgService     `inject:"orgService"`
 	CamService common.CameraService  `inject:"camService"`
 	ImgService common.ImageService   `inject:"imgService"`
-	CtxFactory common.ContextFactory `inject:"ctxFactory"`
+	MainCtx    context.Context       `inject:"mainCtx"`
+	Persister  Persister             `inject:"persister"`
 	logger     log4g.Logger
 }
 
@@ -157,6 +162,12 @@ func (a *api) toScenePerson(p *common.PersonLog) *ScenePerson {
 	res.PicPos = &p.Snapshot.Position
 	res.PicTime = p.Snapshot.Timestamp.ToISO8601Time()
 	return res
+}
+
+func (a *api) newContext() context.Context {
+	ch, ctx := common.NewCtxHolder(a.MainCtx)
+	ch.WithPersister(a.Persister)
+	return ctx
 }
 
 func composeURI(r *http.Request, id string) string {

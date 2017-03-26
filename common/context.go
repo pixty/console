@@ -1,40 +1,47 @@
 package common
 
-// The Context is used for passing some request parameters between services.
-// One of the examples could be the TxPersister
-type Context struct {
-	cf          *DefaultContextFactory
+import (
+	"sync"
+
+	"golang.org/x/net/context"
+)
+
+const cCtxHolderKey = "ctxHolder"
+
+type CtxHolder struct {
+	ctx         context.Context
+	persister   Persister
 	txPersister TxPersister
+	lock        sync.Mutex
 }
 
-// The Context factory interface provides methods for creating new contexts
-type ContextFactory interface {
-	NewContext() *Context
+func NewCtxHolder(ctx context.Context) (*CtxHolder, context.Context) {
+	ch := new(CtxHolder)
+	newCtx := context.WithValue(ctx, cCtxHolderKey, ch)
+	ch.ctx = newCtx
+	return ch, newCtx
 }
 
-type DefaultContextFactory struct {
-	Persister Persister `inject:"persister"`
+func (ch *CtxHolder) WithPersister(persister Persister) *CtxHolder {
+	ch.persister = persister
+	return ch
 }
 
-func NewContextFactory() *DefaultContextFactory {
-	return &DefaultContextFactory{}
-}
-
-// Constructs new Context
-func (cf *DefaultContextFactory) NewContext() *Context {
-	return &Context{cf: cf}
-}
-
-func (ctx *Context) TxPersister() TxPersister {
-	if ctx.txPersister == nil {
-		ctx.txPersister = ctx.cf.Persister.NewTxPersister()
+func (ch *CtxHolder) TxPersister() TxPersister {
+	if ch.txPersister == nil {
+		ch.lock.Lock()
+		if ch.txPersister == nil {
+			ch.txPersister = ch.persister.NewTxPersister(ch.ctx)
+		}
+		ch.lock.Unlock()
 	}
-	return ctx.txPersister
+	return ch.txPersister
 }
 
-func (ctx *Context) Close() {
-	if ctx.txPersister != nil {
-		ctx.txPersister.Close()
-		ctx.txPersister = nil
+func GetTxPersister(ctx context.Context) TxPersister {
+	ch, ok := ctx.Value(cCtxHolderKey).(*CtxHolder)
+	if !ok {
+		panic("Not acceptable usage of context!")
 	}
+	return ch.TxPersister()
 }

@@ -1,11 +1,14 @@
 package main
 
-import "github.com/jrivets/log4g"
-import "github.com/jrivets/inject"
-import "github.com/pixty/console/rapi"
-import "github.com/pixty/console/common"
-import "github.com/pixty/console/service"
-import "github.com/pixty/console/model"
+import (
+	"github.com/jrivets/inject"
+	"github.com/jrivets/log4g"
+	"github.com/pixty/console/common"
+	"github.com/pixty/console/model"
+	"github.com/pixty/console/rapi"
+	"github.com/pixty/console/service"
+	"golang.org/x/net/context"
+)
 
 func main() {
 	cc := initConsoleConfig()
@@ -25,6 +28,9 @@ func main() {
 	defer injector.Shutdown()
 	defer log4g.Shutdown()
 
+	mainCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	restApi := rapi.NewAPI()
 	mongo := model.NewMongoPersister()
 	camService := service.NewDefaultCameraService()
@@ -39,7 +45,7 @@ func main() {
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(mongo, "persister")
-	injector.RegisterOne(defContextFactory, "ctxFactory")
+	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.Construct()
 
 	restApi.Run()

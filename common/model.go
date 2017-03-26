@@ -157,6 +157,6 @@ const (
 	SS_COMPLETED
 )
 
-func (pl *PersonLog) String() string {
-	return fmt.Sprintf("%+v", *pl)
+func (sc *Scene) String() string {
+	return fmt.Sprintf("%+v", *sc)
 }
