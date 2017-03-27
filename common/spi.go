@@ -27,8 +27,6 @@ type (
 	CameraService interface {
 		GetById(CamId Id) *Camera
 		GetByOrgId(OrgId Id) []*Camera
-		GetScene(ctx *Context, CamId Id) []*PersonLog
-		UpdateScene(ctx *Context, plogs []*PersonLog)
 	}
 
 	ImageDescriptor struct {
