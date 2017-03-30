@@ -41,11 +41,15 @@ func (a *api) DiPostConstruct() {
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
 	a.endpoint("GET", "/cameras/:camId/scene", func(c *gin.Context) { a.h_GET_cameras_scene(c, common.Id(c.Param("camId"))) })
-	//	a.endpoint("GET", "/organizations/:orgId/cameras", func(c *gin.Context) { a.getOrgCameras(c, common.Id(c.Param("orgId"))) })
-
-	//	a.endpoint("POST", "/images", func(c *gin.Context) { a.newImage(c) })
-	//	a.endpoint("GET", "/images/:imgId", func(c *gin.Context) { a.getImageById(c, common.Id(c.Param("imgId"))) })
-	//	a.endpoint("GET", "/cameras/:camId", func(c *gin.Context) { a.getSceneByCamId(c, common.Id(c.Param("camId"))) })
+	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
+	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
+	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
+	a.endpoint("GET", "/profiles/:profileId/persons/:personId", func(c *gin.Context) {
+		a.h_GET_profile_persons_person(c, common.Id(c.Param("profileId")), common.Id(c.Param("personId")))
+	})
+	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
+	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
+	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
 }
 
 func (a *api) String() string {

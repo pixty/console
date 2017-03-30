@@ -1,20 +1,22 @@
 package model
 
-import "github.com/pixty/console/common"
-import "github.com/jrivets/log4g"
-import "gopkg.in/mgo.v2"
-import "gopkg.in/mgo.v2/bson"
-import "time"
-import "strings"
-import "reflect"
-import "errors"
+import (
+	"reflect"
+	"strings"
+	"time"
+
+	"github.com/jrivets/log4g"
+	"github.com/pixty/console/common"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+)
 
 const (
-	cColCamera        = "camera"
-	cColOrganization  = "organization"
-	cColPerson        = "person"
-	cColPersonLog     = "person_log"
-	cColPersonOrgInfo = "person_org_info"
+	cColCamera       = "cameras"
+	cColOrganization = "organizations"
+	cColPerson       = "persons"
+	cColProfile      = "profiles"
+	cColScene        = "scenes"
 )
 
 type MongoPersister struct {
@@ -101,10 +103,17 @@ func (mp *MongoPersister) ensureIndexes() {
 	tx := mp.new_txPersister()
 	defer tx.Close()
 
-	// person log
-	colPersonLog := tx.getMgoCollection(cColPersonLog)
-	colPersonLog.EnsureIndex(mgo.Index{
-		Key:        []string{"camId", "-sceneTs"},
+	// persons
+	colPerson := tx.getMgoCollection(cColPerson)
+	colPerson.EnsureIndex(mgo.Index{
+		Key:        []string{"profileId"},
+		Background: true,
+	})
+
+	// scenes
+	colScene := tx.getMgoCollection(cColScene)
+	colScene.EnsureIndex(mgo.Index{
+		Key:        []string{"camId", "-timestamp"},
 		Background: true,
 	})
 }
@@ -131,12 +140,12 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	case common.STGE_PERSON:
 		colName = cColPerson
 		tp = reflect.TypeOf(&common.Person{})
-	case common.STGE_PERSON_LOG:
-		colName = cColPersonLog
-		tp = reflect.TypeOf(&common.PersonLog{})
-	case common.STGE_PERSON_ORG:
-		colName = cColPersonOrgInfo
-		tp = reflect.TypeOf(&common.PersonOrgInfo{})
+	case common.STGE_PROFILE:
+		colName = cColProfile
+		tp = reflect.TypeOf(&common.Profile{})
+	case common.STGE_SCENE:
+		colName = cColScene
+		tp = reflect.TypeOf(&common.Scene{})
 	default:
 		tx.mp.logger.Error("Unknown storage ", storage)
 		return nil
@@ -147,49 +156,67 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	return &crudExec{collection, tp, log4g.GetLogger(logname)}
 }
 
-func (tx *txPersister) GetLatestScene(camId common.Id) ([]*common.PersonLog, error) {
-	if camId == common.ID_NULL {
-		err := errors.New("camId expected to be specified")
-		tx.mp.logger.Warn("GetLatestScene() camId is null. Returning error.")
+func (tx *txPersister) FindPersonsByIds(ids ...bson.ObjectId) ([]*common.Person, error) {
+	logger := tx.mp.logger
+	logger.Debug("FindPersonsByIds(): looking for persons with Ids = ", ids)
+	q := bson.M{"_id": bson.M{"$in": ids}}
+	colPersons := tx.getMgoCollection(cColPerson)
+	var res []*common.Person
+	it := colPersons.Find(q).Iter()
+	err := it.All(&res)
+	it.Close()
+
+	if err != nil {
+		logger.Warn("FindPersonsByIds(): oops. Coannot iterate over result collection ", err)
 		return nil, err
 	}
 
-	tx.mp.logger.Debug("GetLatestScene() for camId=", camId)
-	q := bson.M{}
-	q["camId"] = camId
-
-	colPersonLog := tx.getMgoCollection(cColPersonLog)
-	limit := 2
-	for {
-		var res []*common.PersonLog
-		it := colPersonLog.Find(q).Sort("-sceneTs").Limit(limit).Iter()
-		err := it.All(&res)
-		it.Close()
-
-		if err != nil {
-			tx.mp.logger.Warn("GetLatestScene(): oops. Cannot interate over collection ", err)
-			return nil, err
-		}
-
-		size := len(res)
-		if size == limit && res[0].SceneTs == res[size-1].SceneTs {
-			tx.mp.logger.Debug("Found ", size, " records and all of them are from the same scene. Looping...")
-			limit = limit << 1
-			continue
-		}
-
-		if size == 0 {
-			tx.mp.logger.Debug("Found 0 records for the camera")
-			return res, nil
-		}
-
-		idx := len(res) - 1
-		for res[0].SceneTs != res[idx].SceneTs {
-			idx--
-		}
-		return res[:idx+1], nil
-	}
+	return res, nil
 }
+
+//func (tx *txPersister) GetLatestScene(camId common.Id) ([]*common.PersonLog, error) {
+//	if camId == common.ID_NULL {
+//		err := errors.New("camId expected to be specified")
+//		tx.mp.logger.Warn("GetLatestScene() camId is null. Returning error.")
+//		return nil, err
+//	}
+
+//	tx.mp.logger.Debug("GetLatestScene() for camId=", camId)
+//	q := bson.M{}
+//	q["camId"] = camId
+
+//	colPersonLog := tx.getMgoCollection(cColPersonLog)
+//	limit := 2
+//	for {
+//		var res []*common.PersonLog
+//		it := colPersonLog.Find(q).Sort("-sceneTs").Limit(limit).Iter()
+//		err := it.All(&res)
+//		it.Close()
+
+//		if err != nil {
+//			tx.mp.logger.Warn("GetLatestScene(): oops. Cannot interate over collection ", err)
+//			return nil, err
+//		}
+
+//		size := len(res)
+//		if size == limit && res[0].SceneTs == res[size-1].SceneTs {
+//			tx.mp.logger.Debug("Found ", size, " records and all of them are from the same scene. Looping...")
+//			limit = limit << 1
+//			continue
+//		}
+
+//		if size == 0 {
+//			tx.mp.logger.Debug("Found 0 records for the camera")
+//			return res, nil
+//		}
+
+//		idx := len(res) - 1
+//		for res[0].SceneTs != res[idx].SceneTs {
+//			idx--
+//		}
+//		return res[:idx+1], nil
+//	}
+//}
 
 func (tx *txPersister) Close() {
 	tx.session.Close()
@@ -202,10 +229,6 @@ func (tx *txPersister) getMgoCollection(colName string) *mgo.Collection {
 }
 
 // =========================== CrudExecutor ==================================
-func (ce *crudExec) NewId() common.Id {
-	return common.Id(bson.NewObjectId())
-}
-
 func (ce *crudExec) Create(o interface{}) error {
 	ce.logger.Debug("New object ", o)
 	return ce.collection.Insert(o)

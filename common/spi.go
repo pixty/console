@@ -21,7 +21,6 @@ type (
 
 	OrgService interface {
 		GetById(OrgId Id) *Organization
-		GetPersons(OrgId Id, PIds ...Id) []*PersonOrgInfo
 	}
 
 	CameraService interface {
