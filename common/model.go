@@ -44,8 +44,9 @@ type (
 	}
 
 	Person struct {
-		Id    bson.ObjectId `bson:"_id" json:"id"`
-		CamId Id            `bson:"camId"`
+		Id string `bson:"_id" json:"id"`
+		//Id    bson.ObjectId `bson:"_id" json:"id"`
+		CamId Id `bson:"camId"`
 
 		// Associated profile. It can be nil if the profile is not found or
 		// not created yet.
@@ -114,7 +115,10 @@ type (
 		Close()
 
 		// Persons specific
-		FindPersonsByIds(ids ...bson.ObjectId) ([]*Person, error)
+		FindPersonsByIds(ids ...string) ([]*Person, error)
+
+		// Scene specific
+		GetLatestScene(camId Id) (*Scene, error)
 	}
 
 	CrudExecutor interface {

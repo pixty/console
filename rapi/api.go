@@ -18,10 +18,9 @@ type api struct {
 	ge         *gin.Engine
 	Config     *common.ConsoleConfig `inject:""`
 	OrgService common.OrgService     `inject:"orgService"`
-	CamService common.CameraService  `inject:"camService"`
 	ImgService common.ImageService   `inject:"imgService"`
 	MainCtx    context.Context       `inject:"mainCtx"`
-	Persister  Persister             `inject:"persister"`
+	Persister  common.Persister      `inject:"persister"`
 	logger     log4g.Logger
 }
 
@@ -74,11 +73,8 @@ func (a *api) h_GET_ping(c *gin.Context) {
 // GET /cameras/:camId/scene
 func (a *api) h_GET_cameras_scene(c *gin.Context, camId common.Id) {
 	a.logger.Debug("GET /cameras/", camId, "/scene")
-	ctx := a.newContext()
-
-	//TODO:
-	pls := a.CamService.GetScene(ctx, camId)
-	c.JSON(http.StatusOK, a.toScene(camId, pls))
+	scene := a.getLatestScene(camId)
+	c.JSON(http.StatusOK, scene)
 }
 
 // GET /profiles/:profileId
@@ -183,6 +179,13 @@ func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFu
 		a.logger.Error("Unknonwn method ", method)
 		panic("cannot register endpoint: " + method + " " + relativePath)
 	}
+}
+
+func (a *api) getLatestScene(camId common.Id) *Scene {
+	logger := a.logger
+	logger.Debug("Get latest scene for camId=", camId)
+	txPersister := a.Persister.NewTxPersister(a.MainCtx)
+
 }
 
 func (a *api) toScene(camId common.Id, pl []*common.PersonLog) *Scene {

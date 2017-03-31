@@ -156,7 +156,7 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	return &crudExec{collection, tp, log4g.GetLogger(logname)}
 }
 
-func (tx *txPersister) FindPersonsByIds(ids ...bson.ObjectId) ([]*common.Person, error) {
+func (tx *txPersister) FindPersonsByIds(ids ...string) ([]*common.Person, error) {
 	logger := tx.mp.logger
 	logger.Debug("FindPersonsByIds(): looking for persons with Ids = ", ids)
 	q := bson.M{"_id": bson.M{"$in": ids}}
@@ -174,49 +174,11 @@ func (tx *txPersister) FindPersonsByIds(ids ...bson.ObjectId) ([]*common.Person,
 	return res, nil
 }
 
-//func (tx *txPersister) GetLatestScene(camId common.Id) ([]*common.PersonLog, error) {
-//	if camId == common.ID_NULL {
-//		err := errors.New("camId expected to be specified")
-//		tx.mp.logger.Warn("GetLatestScene() camId is null. Returning error.")
-//		return nil, err
-//	}
-
-//	tx.mp.logger.Debug("GetLatestScene() for camId=", camId)
-//	q := bson.M{}
-//	q["camId"] = camId
-
-//	colPersonLog := tx.getMgoCollection(cColPersonLog)
-//	limit := 2
-//	for {
-//		var res []*common.PersonLog
-//		it := colPersonLog.Find(q).Sort("-sceneTs").Limit(limit).Iter()
-//		err := it.All(&res)
-//		it.Close()
-
-//		if err != nil {
-//			tx.mp.logger.Warn("GetLatestScene(): oops. Cannot interate over collection ", err)
-//			return nil, err
-//		}
-
-//		size := len(res)
-//		if size == limit && res[0].SceneTs == res[size-1].SceneTs {
-//			tx.mp.logger.Debug("Found ", size, " records and all of them are from the same scene. Looping...")
-//			limit = limit << 1
-//			continue
-//		}
-
-//		if size == 0 {
-//			tx.mp.logger.Debug("Found 0 records for the camera")
-//			return res, nil
-//		}
-
-//		idx := len(res) - 1
-//		for res[0].SceneTs != res[idx].SceneTs {
-//			idx--
-//		}
-//		return res[:idx+1], nil
-//	}
-//}
+func (tx *txPersister) GetLatestScene(camId common.Id) (*common.Scene, error) {
+	logger := tx.mp.logger
+	logger.Debug("GetLatestScene(): looking for latest scene ", camId)
+	return nil, nil
+}
 
 func (tx *txPersister) Close() {
 	tx.session.Close()
