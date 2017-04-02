@@ -59,10 +59,4 @@ type (
 		Timestamp common.ISO8601Time `json:"timestamp"`
 		Persons   []*Person          `json:"persons"`
 	}
-
-	PictureInfo struct {
-		Id        common.Id          `json:"id"`
-		Timestamp common.ISO8601Time `json:"timestamp"`
-		Size      fpcp.RectSize      `json:"size"`
-	}
 )

@@ -97,11 +97,11 @@ func CurrentISO8601Time() ISO8601Time {
 }
 
 func ToTimestamp(t time.Time) Timestamp {
-	return Timestamp(t.UnixNano())
+	return Timestamp(t.UnixNano() / int64(time.Millisecond))
 }
 
 func (t Timestamp) ToTime() time.Time {
-	return time.Unix(0, int64(t))
+	return time.Unix(0, int64(t*Timestamp(time.Millisecond)))
 }
 
 func (t Timestamp) ToISO8601Time() ISO8601Time {

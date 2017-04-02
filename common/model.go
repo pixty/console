@@ -120,17 +120,25 @@ type (
 		Close()
 
 		// Persons specific
-		FindPersonsByIds(ids ...Id) ([]*Person, error)
+		FindPersons(query *PersonsQuery) ([]*Person, error)
 
 		// Scene specific
-		GetScenes(q *SceneQery) ([]*Scene, error)
+		GetScenes(q *SceneQuery) ([]*Scene, error)
 
 		// Find all matches
 		GetMatches(personId Id) ([]*PersonMatch, error)
 	}
 
-	SceneQery struct {
+	PersonsQuery struct {
+		PersonIds []Id
+		ProfileId Id
+		FromTime  Timestamp
+		Limit     int
+	}
+
+	SceneQuery struct {
 		CamId Id
+		Limit int
 	}
 
 	CrudExecutor interface {
@@ -154,4 +162,8 @@ const (
 
 func (sc *Scene) String() string {
 	return fmt.Sprintf("%+v", *sc)
+}
+
+func (q *SceneQuery) String() string {
+	return fmt.Sprintf("{camId=%s, limit=%d}", q.CamId, q.Limit)
 }

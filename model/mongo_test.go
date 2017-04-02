@@ -58,7 +58,7 @@ func createPersons(tx common.TxPersister, persons int) []common.Id {
 }
 
 func findPersons(t *testing.T, tx common.TxPersister, ids []common.Id, expected int) {
-	res, err := tx.FindPersonsByIds(ids...)
+	res, err := tx.FindPersons(&common.PersonsQuery{PersonIds: ids})
 	if err != nil {
 		t.Fatal("Failed with error=" + err.Error())
 		return

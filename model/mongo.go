@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"time"
@@ -107,7 +108,7 @@ func (mp *MongoPersister) ensureIndexes() {
 	// persons
 	colPerson := tx.getMgoCollection(cColPerson)
 	colPerson.EnsureIndex(mgo.Index{
-		Key:        []string{"profileId"},
+		Key:        []string{"profileId", "-seenAt"},
 		Background: true,
 	})
 
@@ -160,26 +161,41 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	return &crudExec{collection, tp, log4g.GetLogger(logname)}
 }
 
-func (tx *txPersister) FindPersonsByIds(ids ...common.Id) ([]*common.Person, error) {
+func (tx *txPersister) FindPersons(query *common.PersonsQuery) ([]*common.Person, error) {
 	logger := tx.mp.logger
-	logger.Debug("FindPersonsByIds(): looking for persons with Ids = ", ids)
-	q := bson.M{"_id": bson.M{"$in": ids}}
+	logger.Debug("FindPersons(): looking for persons query = ", query)
 	colPersons := tx.getMgoCollection(cColPerson)
-	var res []*common.Person
-	it := colPersons.Find(q).Iter()
-	err := it.All(&res)
-	it.Close()
 
-	if err != nil {
-		logger.Warn("FindPersonsByIds(): oops. Coannot iterate over result collection ", err)
-		return nil, err
+	var mq *mgo.Query
+	if query.PersonIds != nil && len(query.PersonIds) > 0 {
+		q := bson.M{"_id": bson.M{"$in": query.PersonIds}}
+		mq = colPersons.Find(q)
+	} else if query.ProfileId != common.ID_NULL {
+		q := bson.M{"$and": []bson.M{bson.M{"seenAt": bson.M{"$lte": query.FromTime}}, bson.M{"profileId": query.ProfileId}}}
+		mq = colPersons.Find(q).Sort("-seenAt").Limit(query.Limit)
+	} else {
+		logger.Warn("FindPersons(): bad query = ", query)
+		return nil, errors.New("list of person Ids or profile Id should be specified")
 	}
 
-	return res, nil
+	var res []*common.Person
+	it := mq.Iter()
+	err := it.All(&res)
+	it.Close()
+	return res, err
+
 }
 
-func (tx *txPersister) GetScenes(q *common.SceneQery) ([]*common.Scene, error) {
-	return nil, nil
+func (tx *txPersister) GetScenes(query *common.SceneQuery) ([]*common.Scene, error) {
+	logger := tx.mp.logger
+	logger.Debug("GetScenes(): looking for query=", query)
+	q := bson.M{"camId": query.CamId}
+	col := tx.getMgoCollection(cColScene)
+	var res []*common.Scene
+	it := col.Find(q).Sort("-timestamp").Limit(query.Limit).Iter()
+	err := it.All(&res)
+	it.Close()
+	return res, err
 }
 
 func (tx *txPersister) GetMatches(personId common.Id) ([]*common.PersonMatch, error) {
@@ -191,13 +207,7 @@ func (tx *txPersister) GetMatches(personId common.Id) ([]*common.PersonMatch, er
 	it := comPersMatches.Find(q).Iter()
 	err := it.All(&res)
 	it.Close()
-
-	if err != nil {
-		logger.Warn("GetMatches(): oops. Coannot iterate over result collection ", err)
-		return nil, err
-	}
-
-	return res, nil
+	return res, err
 }
 
 func (tx *txPersister) Close() {

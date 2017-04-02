@@ -1,7 +1,6 @@
 package rapi
 
 import (
-	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -73,24 +72,91 @@ func (a *api) h_GET_ping(c *gin.Context) {
 // GET /cameras/:camId/scenes
 func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	a.logger.Debug("GET /cameras/", camId, "/scenes")
-	scene := a.getScenes(camId)
+	rctx := a.newRequestCtx(c)
+	scene, err := rctx.getScenes(&common.SceneQuery{
+		CamId: camId,
+	})
+
+	if err != nil {
+		a.logger.Error("Could not get scene by for camId=", camId, ", err=", err)
+		c.JSON(http.StatusInternalServerError, err.Error())
+		return
+	}
 	c.JSON(http.StatusOK, scene)
 }
 
 // GET /profiles/:profileId
 func (a *api) h_GET_profile(c *gin.Context, profileId common.Id) {
+	a.logger.Debug("GET /profiles/", profileId)
+	rctx := a.newRequestCtx(c)
+
+	prf := rctx.getProfile(profileId)
+	if prf == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.JSON(http.StatusOK, prf)
 }
 
 // GET /profiles/:profileId/persons
 func (a *api) h_GET_profile_persons(c *gin.Context, profileId common.Id) {
+	a.logger.Debug("GET /profiles/", profileId)
+	rctx := a.newRequestCtx(c)
+	now := common.CurrentTimestamp()
+
+	pers, err := rctx.getPersonsByQuery(&common.PersonsQuery{ProfileId: profileId, Limit: 100, FromTime: now})
+	if err != nil {
+		a.logger.Error("Bad request err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, pers)
 }
 
 // POST /profiles/:profileId/persons
 func (a *api) h_POST_profile_persons(c *gin.Context, profileId common.Id) {
+	a.logger.Info("GET /profiles/", profileId, "/persons")
+	rctx := a.newRequestCtx(c)
+	var person Person
+	err := c.Bind(&person)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = rctx.associatePersonToProfile(&person, profileId)
+	if err != nil {
+		a.logger.Warn("Could not complete person to profile association. err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	r := c.Request
+	w := c.Writer
+	w.Header().Set("Location", composeURI(r, string(person.Id)))
 }
 
 // GET /profiles/:profileId/persons/:personId
 func (a *api) h_GET_profile_persons_person(c *gin.Context, profileId common.Id, personId common.Id) {
+	a.logger.Debug("GET /profiles/", profileId, "/persons/", personId)
+	rctx := a.newRequestCtx(c)
+	pers, err := rctx.getPersonsByQuery(&common.PersonsQuery{PersonIds: []common.Id{personId}})
+	if pers == nil || len(pers) != 1 {
+		a.logger.Warn("Could not find personId=", personId, ", err=", err)
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	prsn := pers[0]
+	if prsn.Profile == nil || prsn.Profile.Id != profileId {
+		a.logger.Warn("The person person=", prsn, " is not associated with profileId=", profileId)
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.JSON(http.StatusOK, prsn)
 }
 
 // POST /profiles/
@@ -169,7 +235,7 @@ func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
 //}
 
 func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFunc) {
-	a.logger.Info("Registering endpoint: ", method, " ", relativePath, " funcs: ", handlers)
+	a.logger.Info("Registering endpoint: ", method, " ", relativePath, " funcs: ", handler)
 	switch method {
 	case "GET":
 		a.ge.GET(relativePath, handler)
@@ -204,10 +270,14 @@ func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFu
 //	return res
 //}
 
-func (a *api) newContext() context.Context {
-	ch, ctx := common.NewCtxHolder(a.MainCtx)
+func (a *api) newRequestCtx(c *gin.Context) *RequestCtx {
+	return newRequestCtx(a, a.newContext())
+}
+
+func (a *api) newContext() *common.CtxHolder {
+	ch, _ := common.NewCtxHolder(a.MainCtx)
 	ch.WithPersister(a.Persister)
-	return ctx
+	return ch
 }
 
 func composeURI(r *http.Request, id string) string {
