@@ -27,6 +27,7 @@ type (
 		Id         common.Id          `json:"id"`
 		CamId      common.Id          `json:"camId"`
 		CapturedAt common.ISO8601Time `json:"capturedAt"`
+		LostAt     common.ISO8601Time `json:"lostAt"`
 
 		// Contains Person <-> profile association. Could be nil, if there is
 		// no such association

@@ -38,6 +38,10 @@ func (ch *CtxHolder) TxPersister() TxPersister {
 	return ch.txPersister
 }
 
+func (ch *CtxHolder) Ctx() context.Context {
+	return ch.ctx
+}
+
 func GetTxPersister(ctx context.Context) TxPersister {
 	ch, ok := ctx.Value(cCtxHolderKey).(*CtxHolder)
 	if !ok {

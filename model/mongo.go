@@ -15,6 +15,7 @@ const (
 	cColCamera       = "cameras"
 	cColOrganization = "organizations"
 	cColPerson       = "persons"
+	cColPersonMatch  = "matches"
 	cColProfile      = "profiles"
 	cColScene        = "scenes"
 )
@@ -140,6 +141,9 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	case common.STGE_PERSON:
 		colName = cColPerson
 		tp = reflect.TypeOf(&common.Person{})
+	case common.STGE_PERSON_MATCH:
+		colName = cColPersonMatch
+		tp = reflect.TypeOf(&common.PersonMatch{})
 	case common.STGE_PROFILE:
 		colName = cColProfile
 		tp = reflect.TypeOf(&common.Profile{})
@@ -156,7 +160,7 @@ func (tx *txPersister) GetCrudExecutor(storage common.Storage) common.CrudExecut
 	return &crudExec{collection, tp, log4g.GetLogger(logname)}
 }
 
-func (tx *txPersister) FindPersonsByIds(ids ...string) ([]*common.Person, error) {
+func (tx *txPersister) FindPersonsByIds(ids ...common.Id) ([]*common.Person, error) {
 	logger := tx.mp.logger
 	logger.Debug("FindPersonsByIds(): looking for persons with Ids = ", ids)
 	q := bson.M{"_id": bson.M{"$in": ids}}
@@ -174,10 +178,26 @@ func (tx *txPersister) FindPersonsByIds(ids ...string) ([]*common.Person, error)
 	return res, nil
 }
 
-func (tx *txPersister) GetLatestScene(camId common.Id) (*common.Scene, error) {
-	logger := tx.mp.logger
-	logger.Debug("GetLatestScene(): looking for latest scene ", camId)
+func (tx *txPersister) GetScenes(q *common.SceneQery) ([]*common.Scene, error) {
 	return nil, nil
+}
+
+func (tx *txPersister) GetMatches(personId common.Id) ([]*common.PersonMatch, error) {
+	logger := tx.mp.logger
+	logger.Debug("GetMatches(): looking for person=", personId)
+	q := bson.M{"personId": personId}
+	comPersMatches := tx.getMgoCollection(cColPersonMatch)
+	var res []*common.PersonMatch
+	it := comPersMatches.Find(q).Iter()
+	err := it.All(&res)
+	it.Close()
+
+	if err != nil {
+		logger.Warn("GetMatches(): oops. Coannot iterate over result collection ", err)
+		return nil, err
+	}
+
+	return res, nil
 }
 
 func (tx *txPersister) Close() {

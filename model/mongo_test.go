@@ -24,10 +24,6 @@ func TestGetPersonsById(t *testing.T) {
 	// for the test only
 	defer mp.dropDatabase()
 
-	log := log4g.GetLogger("console.mongo")
-	o := bson.NewObjectId()
-	log.Info("o=", o, ", o1=", o.Hex(), " ", bson.ObjectIdHex(o.Hex()))
-
 	tx := mp.NewTxPersister()
 	ids1 := createPersons(tx, 5)
 	findPersons(t, tx, ids1, 5)
@@ -39,15 +35,15 @@ func TestGetPersonsById(t *testing.T) {
 	findPersons(t, tx, ids3, 10)
 }
 
-func createPersons(tx common.TxPersister, persons int) []string {
+func createPersons(tx common.TxPersister, persons int) []common.Id {
 	objs := make([]interface{}, 0, 10)
-	res := make([]string, 0, 10)
+	res := make([]common.Id, 0, 10)
 
 	col := tx.GetCrudExecutor(common.STGE_PERSON)
 
 	for ; persons > 0; persons-- {
 		p := &common.Person{}
-		p.Id = bson.NewObjectId().Hex()
+		p.Id = common.Id(bson.NewObjectId().Hex())
 		p.ProfileId = "1234"
 		objs = append(objs, p)
 		res = append(res, p.Id)
@@ -61,7 +57,7 @@ func createPersons(tx common.TxPersister, persons int) []string {
 	return res
 }
 
-func findPersons(t *testing.T, tx common.TxPersister, ids []string, expected int) {
+func findPersons(t *testing.T, tx common.TxPersister, ids []common.Id, expected int) {
 	res, err := tx.FindPersonsByIds(ids...)
 	if err != nil {
 		t.Fatal("Failed with error=" + err.Error())

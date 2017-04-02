@@ -39,7 +39,7 @@ func (a *api) DiPostConstruct() {
 	a.logger.Info("Constructing ReST API")
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
-	a.endpoint("GET", "/cameras/:camId/scene", func(c *gin.Context) { a.h_GET_cameras_scene(c, common.Id(c.Param("camId"))) })
+	a.endpoint("GET", "/cameras/:camId/scenes", func(c *gin.Context) { a.h_GET_cameras_scenes(c, common.Id(c.Param("camId"))) })
 	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
 	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
 	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
@@ -70,10 +70,10 @@ func (a *api) h_GET_ping(c *gin.Context) {
 	c.String(http.StatusOK, "pong")
 }
 
-// GET /cameras/:camId/scene
-func (a *api) h_GET_cameras_scene(c *gin.Context, camId common.Id) {
-	a.logger.Debug("GET /cameras/", camId, "/scene")
-	scene := a.getLatestScene(camId)
+// GET /cameras/:camId/scenes
+func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
+	a.logger.Debug("GET /cameras/", camId, "/scenes")
+	scene := a.getScenes(camId)
 	c.JSON(http.StatusOK, scene)
 }
 
@@ -181,35 +181,28 @@ func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFu
 	}
 }
 
-func (a *api) getLatestScene(camId common.Id) *Scene {
-	logger := a.logger
-	logger.Debug("Get latest scene for camId=", camId)
-	txPersister := a.Persister.NewTxPersister(a.MainCtx)
+//func (a *api) toScene(camId common.Id, pl []*common.PersonLog) *Scene {
+//	var persons []*ScenePerson
+//	scTime := common.CurrentISO8601Time()
+//	if pl != nil && len(pl) != 0 {
+//		scTime = pl[0].SceneTs.ToISO8601Time()
+//		persons = make([]*ScenePerson, 0, len(pl))
+//		for _, p := range pl {
+//			persons = append(persons, a.toScenePerson(p))
+//		}
+//	}
+//	return &Scene{CamId: camId, Timestamp: scTime, Persons: persons}
+//}
 
-}
-
-func (a *api) toScene(camId common.Id, pl []*common.PersonLog) *Scene {
-	var persons []*ScenePerson
-	scTime := common.CurrentISO8601Time()
-	if pl != nil && len(pl) != 0 {
-		scTime = pl[0].SceneTs.ToISO8601Time()
-		persons = make([]*ScenePerson, 0, len(pl))
-		for _, p := range pl {
-			persons = append(persons, a.toScenePerson(p))
-		}
-	}
-	return &Scene{CamId: camId, Timestamp: scTime, Persons: persons}
-}
-
-func (a *api) toScenePerson(p *common.PersonLog) *ScenePerson {
-	res := &ScenePerson{}
-	res.Person = &Person{Id: p.PersonId}
-	res.CapturedAt = p.CaptureTs.ToISO8601Time()
-	res.PicId = p.Snapshot.ImageId
-	res.PicPos = &p.Snapshot.Position
-	res.PicTime = p.Snapshot.Timestamp.ToISO8601Time()
-	return res
-}
+//func (a *api) toScenePerson(p *common.PersonLog) *ScenePerson {
+//	res := &ScenePerson{}
+//	res.Person = &Person{Id: p.PersonId}
+//	res.CapturedAt = p.CaptureTs.ToISO8601Time()
+//	res.PicId = p.Snapshot.ImageId
+//	res.PicPos = &p.Snapshot.Position
+//	res.PicTime = p.Snapshot.Timestamp.ToISO8601Time()
+//	return res
+//}
 
 func (a *api) newContext() context.Context {
 	ch, ctx := common.NewCtxHolder(a.MainCtx)
