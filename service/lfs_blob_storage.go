@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -74,7 +73,7 @@ func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, 
 	}
 
 	id := common.NewId()
-	fileName, err := lbs.getFilePath(id)
+	fileName, err := lbs.getFilePath(string(id))
 	if err != nil {
 		lbs.logger.Error("Could not create path for id=", id)
 		return common.ID_NULL, err
@@ -129,6 +128,17 @@ func (lbs *LfsBlobStorage) Read(objId common.Id) (io.ReadCloser, *common.BlobMet
 
 	lbs.logger.Debug("Found BLOB id=", objId, " meta=", bMeta)
 	return file, bMeta
+}
+
+func (lbs *LfsBlobStorage) ReadMeta(objId common.Id) *common.BlobMeta {
+	lbs.rwLock.RLock()
+	defer lbs.rwLock.RUnlock()
+
+	bMeta, ok := lbs.objects[objId]
+	if !ok {
+		lbs.logger.Debug("Could not find BLOB by id=", objId)
+	}
+	return bMeta
 }
 
 func (lbs *LfsBlobStorage) Delete(objId common.Id) error {
@@ -220,7 +230,7 @@ func (lbs *LfsBlobStorage) saveObjects(checkTime bool) {
 
 func (lbs *LfsBlobStorage) getFilePath(id string) (string, error) {
 	length := len(id)
-	suffix := id[lenght-2 : length]
+	suffix := id[length-2 : length]
 	path := filepath.Join(lbs.storeDir, suffix)
 	if !common.DoesFileExist(path) {
 		lbs.logger.Info("Could not find directory ", path, " creating new one...")

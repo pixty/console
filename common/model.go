@@ -36,6 +36,12 @@ type (
 		RightBottom Point `json:"rightBottom" bson:"rightBottom"`
 	}
 
+	// A size on 2D plane
+	Size struct {
+		Width  int `json:"Width" bson:"width"`
+		Height int `json:"Height" bson:"height"`
+	}
+
 	// A face picture reference
 	FacePic struct {
 		ImageId Id        `bson:"imgId"`

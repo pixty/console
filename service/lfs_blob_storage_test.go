@@ -10,42 +10,9 @@ import "reflect"
 import "bytes"
 import "io"
 
-func TestDiInit(t *testing.T) {
-	lbs := NewLfsBlobStorage()
-	lbs.Config = &common.ConsoleConfig{}
-	if err := lbs.DiInit(); err == nil {
-		t.Fatal("Should fail due to no storage dir")
-	}
-
-	lbs.Config.LbsDir = getUniqueDir()
-	defer removeDir(lbs.Config.LbsDir)
-
-	if common.DoesFileExist(lbs.Config.LbsDir) {
-		t.Fatal("The folder " + lbs.Config.LbsDir + " should not exist yet")
-	}
-
-	if err := lbs.DiInit(); err != nil {
-		t.Fatal("Should be successfull")
-	}
-
-	if !common.DoesFileExist(lbs.Config.LbsDir) {
-		t.Fatal("The folder " + lbs.Config.LbsDir + " should exist after init")
-	}
-
-	if common.DoesFileExist(lbs.metaFN) {
-		t.Fatal("The file " + lbs.metaFN + " should not exist after init")
-	}
-
-	lbs.DiShutdown()
-
-	if !common.DoesFileExist(lbs.metaFN) {
-		t.Fatal("The file " + lbs.metaFN + " should exist after shutdown")
-	}
-}
-
 func TestRWCycle(t *testing.T) {
 	lbs := initLbs()
-
+	defer lbs.Shutdown()
 	defer removeDir(lbs.storeDir)
 
 	meta := common.NewBlobMeta()
@@ -68,12 +35,11 @@ func TestRWCycle(t *testing.T) {
 		t.Fatal("data2=\"" + data2 + "\" is not same like \"" + data + "\"")
 	}
 
-	lbs.DiShutdown()
 }
 
 func TestRWMetaNil(t *testing.T) {
 	lbs := initLbs()
-
+	defer lbs.Shutdown()
 	defer removeDir(lbs.storeDir)
 
 	data := "test value"
@@ -93,13 +59,10 @@ func TestRWMetaNil(t *testing.T) {
 	if strings.Compare(data2, data) != 0 {
 		t.Fatal("data2=\"" + data2 + "\" is not same like \"" + data + "\"")
 	}
-
-	lbs.DiShutdown()
 }
 
 func TestStandartCycle(t *testing.T) {
 	lbs := initLbs()
-
 	defer removeDir(lbs.storeDir)
 
 	meta := common.NewBlobMeta()
@@ -108,11 +71,9 @@ func TestStandartCycle(t *testing.T) {
 	r := strings.NewReader(data)
 	id, _ := lbs.Add(r, meta)
 
-	lbs.DiShutdown()
+	lbs.Shutdown()
 
-	lbs2 := NewLfsBlobStorage()
-	lbs2.Config = lbs.Config
-	lbs2.DiInit()
+	lbs2 := NewLfsBlobStorage(lbs.storeDir)
 
 	r2, meta2 := lbs2.Read(id)
 	if r2 == nil {
@@ -128,8 +89,7 @@ func TestStandartCycle(t *testing.T) {
 		t.Fatal("data2=\"" + data2 + "\" is not same like \"" + data + "\"")
 	}
 
-	lbs2.DiShutdown()
-
+	lbs2.Shutdown()
 }
 
 func TestDelete(t *testing.T) {
@@ -151,16 +111,11 @@ func TestDelete(t *testing.T) {
 		t.Fatal("Should be deleted")
 	}
 
-	lbs.DiShutdown()
+	lbs.Shutdown()
 }
 
 func initLbs() *LfsBlobStorage {
-	lbs := NewLfsBlobStorage()
-	lbs.Config = &common.ConsoleConfig{}
-	lbs.Config.LbsDir = getUniqueDir()
-	if err := lbs.DiInit(); err != nil {
-		panic("DiInit() Should be successfull")
-	}
+	lbs := NewLfsBlobStorage(getUniqueDir())
 	return lbs
 }
 

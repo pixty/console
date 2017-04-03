@@ -33,12 +33,17 @@ type (
 		Reader    io.ReadCloser
 		FileName  string
 		CamId     Id
+		Width     int
+		Height    int
 		Timestamp Timestamp
 	}
 
 	ImageService interface {
 		New(id *ImageDescriptor) (Id, error)
-		Read(imgId Id) *ImageDescriptor
+		// Returns image descriptor by an image Id. If noData == true, then
+		// only image metadata is filled, but no data reader is returned.
+		// Returns nil if the image is not found
+		Read(imgId Id, noData bool) *ImageDescriptor
 	}
 
 	BlobMeta struct {
@@ -49,9 +54,12 @@ type (
 		// Saves BLOB to the store. The invoker should close the reader itself
 		Add(r io.Reader, bMeta *BlobMeta) (Id, error)
 
-		// Returns reader for the object ID. It is in voker responsibility to
+		// Returns reader for the object ID. It is invoker responsibility to
 		// close the reader after use.
 		Read(objId Id) (io.ReadCloser, *BlobMeta)
+
+		// Reads meta data for the object. Returns nil if not found.
+		ReadMeta(objId Id) *BlobMeta
 
 		// Deletes an object by its id. Returns error != nil if the object is not found
 		Delete(objId Id) error

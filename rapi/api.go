@@ -117,7 +117,7 @@ func (a *api) h_GET_profile_persons(c *gin.Context, profileId common.Id) {
 
 // POST /profiles/:profileId/persons
 func (a *api) h_POST_profile_persons(c *gin.Context, profileId common.Id) {
-	a.logger.Info("GET /profiles/", profileId, "/persons")
+	a.logger.Info("POST /profiles/", profileId, "/persons")
 	rctx := a.newRequestCtx(c)
 	var person Person
 	err := c.Bind(&person)
@@ -161,10 +161,34 @@ func (a *api) h_GET_profile_persons_person(c *gin.Context, profileId common.Id, 
 
 // POST /profiles/
 func (a *api) h_POST_profile(c *gin.Context) {
+	a.logger.Info("POST /profiles/")
+	rctx := a.newRequestCtx(c)
+
+	var profile Profile
+	err := c.Bind(&profile)
+	if err != nil {
+		a.logger.Warn("Could not turn body to profile object, err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	prfId, err := rctx.newProfile(&profile)
+	if err != nil {
+		a.logger.Error("Could not create new Profile err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	r := c.Request
+	w := c.Writer
+	w.Header().Set("Location", composeURI(r, string(prfId)))
 }
 
 // GET /pictures/:picId
 func (a *api) h_GET_pictures_pic(c *gin.Context, picId common.Id) {
+	a.logger.Debug("GET /pictures/", picId)
+	rctx := a.newRequestCtx(c)
+
 }
 
 // GET /pictures/:picId/download
@@ -271,7 +295,11 @@ func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFu
 //}
 
 func (a *api) newRequestCtx(c *gin.Context) *RequestCtx {
-	return newRequestCtx(a, a.newContext())
+	rctx := newRequestCtx(a, a.newContext())
+
+	// TODO Fix me later. we don't support org so far, so use the fake
+	rctx.orgId = "org-1234"
+	return rctx
 }
 
 func (a *api) newContext() *common.CtxHolder {

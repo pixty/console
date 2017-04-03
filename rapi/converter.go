@@ -3,6 +3,8 @@ package rapi
 import (
 	"errors"
 
+	"gopkg.in/mgo.v2/bson"
+
 	"github.com/jrivets/gorivets"
 	"github.com/pixty/console/common"
 	"github.com/pixty/fpcp"
@@ -202,4 +204,26 @@ func (rc *RequestCtx) associatePersonToProfile(person *Person, profileId common.
 		return err
 	}
 	return nil
+}
+
+// Creates new profile by profile request.
+func (rc *RequestCtx) newProfile(profile *Profile) (common.Id, error) {
+	rc.logger.Info("Creating new profile=", profile)
+
+	id := common.Id(bson.NewObjectId().Hex())
+	poi := common.ProfileOrgInfo{
+		Metadata: profile.Attributes,
+	}
+	prf := &common.Profile{
+		Id:      id,
+		OrgInfo: map[common.Id]common.ProfileOrgInfo{rc.orgId: poi},
+	}
+
+	prfDAO := rc.getTxPersister().GetCrudExecutor(common.STGE_PROFILE)
+	err := prfDAO.Create(prf)
+	return id, err
+}
+
+func (rc *RequestCtx) getPictureInfo(picId *common.Id) (*PictureInfo, error) {
+
 }
