@@ -128,7 +128,7 @@ func (rc *RequestCtx) getMatches(personId common.Id) []*Profile {
 	matches, err := txPersister.GetMatches(personId)
 	if err != nil {
 		rc.logger.Error("getMatches(): err=", err)
-		return []*ProfileMatch{}
+		return []*Profile{}
 	}
 
 	return rc.toProfileMatches(matches)
@@ -160,9 +160,9 @@ func (rc *RequestCtx) getFaceInfo(face *common.FacePic) *PictureInfo {
 
 func (rc *RequestCtx) toProfileMatches(matches []*common.PersonMatch) []*Profile {
 	if matches == nil || len(matches) == 0 {
-		return []*ProfileMatch{}
+		return []*Profile{}
 	}
-	res := make([]*ProfileMatch, len(matches))
+	res := make([]*Profile, len(matches))
 	for i, mch := range matches {
 		res[i] = rc.toProfileMatch(mch)
 	}
@@ -196,7 +196,10 @@ func (rc *RequestCtx) associatePersonToProfile(person *Person, profileId common.
 		return errors.New("Profile with Id=" + string(profileId) + " is not found.")
 	}
 
-	p.ProfileId = profileId
+	pm := &common.PersonMatch{ProfileId: profileId, PersonId: p.Id, Occuracy: 0}
+	rc.logger.Info("Person Match ", pm, ", uses 0% uccuracy due to manual association.")
+
+	p.Profile = pm
 	err := prsnDAO.Update(p)
 	if err != nil {
 		rc.logger.Warn("Could not update profile. err=", err)
