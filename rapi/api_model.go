@@ -6,6 +6,8 @@ import (
 )
 
 type (
+	PersonStatus string
+
 	Organization struct {
 		Id common.Id `json:"id"`
 	}
@@ -21,6 +23,14 @@ type (
 
 		// Key-Value pairs for the organization
 		Attributes map[string]string `json:"attributes"`
+
+		// An integer, which indicates the occuracy in percentage [0.01 .. 100]% with
+		// precision 0.01%, so the value 1 means 0.01%, value 934 means 9.34% and
+		// value 10000 means 100.00% etc.
+		//
+		// The field will be populated when then profile is attached to a person
+		// structure like a profile field or like a profile match
+		Occuracy int `json:"occuracy,omitempty"`
 	}
 
 	Person struct {
@@ -29,23 +39,20 @@ type (
 		CapturedAt common.ISO8601Time `json:"capturedAt"`
 		LostAt     common.ISO8601Time `json:"lostAt"`
 
+		// Status of the person. Please see explanations below. Possible values
+		// are "matching", "assigned" and "unassigned".
+		Status PersonStatus `json:"status"`
+
 		// Contains Person <-> profile association. Could be nil, if there is
 		// no such association
-		Profile  *Profile        `json:"profile"`
-		Matches  []*ProfileMatch `json:"matches"`
-		Pictures []*PictureInfo  `json:"pictures"`
-	}
-
-	ProfileMatch struct {
-		// an integer, which indicates the occuracy in percentage [0..100]
-		Occuracy int `json:"occuracy"`
-
-		// Profile data
-		Profile *Profile `json:"profile"`
+		Profile  *Profile       `json:"profile"`
+		Matches  []*Profile     `json:"matches"`
+		Pictures []*PictureInfo `json:"pictures"`
 	}
 
 	PictureInfo struct {
 		Id        common.Id          `json:"id"`
+		CamId     common.Id          `json:"camId"`
 		Timestamp common.ISO8601Time `json:"timestamp"`
 		Size      fpcp.RectSize      `json:"size"`
 
@@ -59,4 +66,21 @@ type (
 		Timestamp common.ISO8601Time `json:"timestamp"`
 		Persons   []*Person          `json:"persons"`
 	}
+)
+
+const (
+	// The person is in process of searching most best profile match. In the status
+	// the matches list can be updated, new profiles can be found and added to the
+	// list.
+	cPS_MATCHING = "matching"
+
+	// The person has a profile assigned (associated). The state means that a profile
+	// is assigned to the person (profile field is not nil) and no matching process
+	// is runing anymore. Matching list can be whether empty or not, but it is not
+	// going to be updated.
+	cPS_ASSIGNED = "assigned"
+
+	// There is no profile to the person association (profile field is nil), but
+	// matching process is over. The matching list is not going to be updated anymore.
+	cPS_UNASSIGNED = "unassigned"
 )

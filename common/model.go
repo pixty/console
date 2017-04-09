@@ -55,8 +55,9 @@ type (
 
 		// Associated profile. It can be nil if the profile is not found or
 		// not created yet.
-		ProfileId Id        `bson:"profileId"`
-		Faces     []FacePic `bson:"faces"`
+		Profile *PersonMatch `bson:"profile"`
+
+		Faces []FacePic `bson:"faces"`
 
 		// First time the person has been seen at
 		SeenAt Timestamp `bson:"seenAt"`

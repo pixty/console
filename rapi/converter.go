@@ -92,11 +92,11 @@ func (rc *RequestCtx) toPerson(person *common.Person) *Person {
 	res.Id = person.Id
 	res.CamId = person.CamId
 
-	if person.ProfileId != common.ID_NULL {
-		res.Profile = rc.getProfile(person.ProfileId)
-	} else {
-		res.Matches = rc.getMatches(res.Id)
+	if person.Profile != nil {
+		p := rc.getProfile(person.Profile.ProfileId)
+		p.Occuracy = person.Profile.Occuracy
 	}
+	res.Matches = rc.getMatches(res.Id)
 	res.Pictures = rc.getFaceInfos(person.Faces)
 	res.CapturedAt = person.SeenAt.ToISO8601Time()
 	res.LostAt = person.LostAt.ToISO8601Time()
@@ -122,7 +122,7 @@ func (rc *RequestCtx) toProfile(profile *common.Profile) *Profile {
 	return res
 }
 
-func (rc *RequestCtx) getMatches(personId common.Id) []*ProfileMatch {
+func (rc *RequestCtx) getMatches(personId common.Id) []*Profile {
 	rc.logger.Debug("getMatches(): personId=", personId)
 	txPersister := rc.getTxPersister()
 	matches, err := txPersister.GetMatches(personId)
@@ -158,7 +158,7 @@ func (rc *RequestCtx) getFaceInfo(face *common.FacePic) *PictureInfo {
 	return pi
 }
 
-func (rc *RequestCtx) toProfileMatches(matches []*common.PersonMatch) []*ProfileMatch {
+func (rc *RequestCtx) toProfileMatches(matches []*common.PersonMatch) []*Profile {
 	if matches == nil || len(matches) == 0 {
 		return []*ProfileMatch{}
 	}
@@ -169,10 +169,9 @@ func (rc *RequestCtx) toProfileMatches(matches []*common.PersonMatch) []*Profile
 	return res
 }
 
-func (rc *RequestCtx) toProfileMatch(match *common.PersonMatch) *ProfileMatch {
-	res := new(ProfileMatch)
+func (rc *RequestCtx) toProfileMatch(match *common.PersonMatch) *Profile {
+	res := rc.getProfile(match.ProfileId)
 	res.Occuracy = match.Occuracy
-	res.Profile = rc.getProfile(match.ProfileId)
 	return res
 }
 

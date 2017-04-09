@@ -44,7 +44,7 @@ func createPersons(tx common.TxPersister, persons int) []common.Id {
 	for ; persons > 0; persons-- {
 		p := &common.Person{}
 		p.Id = common.Id(bson.NewObjectId().Hex())
-		p.ProfileId = "1234"
+		p.Profile = &common.PersonMatch{PersonId: p.Id, ProfileId: "1234", Occuracy: 1234}
 		objs = append(objs, p)
 		res = append(res, p.Id)
 	}
