@@ -40,6 +40,7 @@ type (
 
 	ImageService interface {
 		New(id *ImageDescriptor) (Id, error)
+
 		// Returns image descriptor by an image Id. If noData == true, then
 		// only image metadata is filled, but no data reader is returned.
 		// Returns nil if the image is not found
@@ -64,11 +65,40 @@ type (
 		// Deletes an object by its id. Returns error != nil if the object is not found
 		Delete(objId Id) error
 	}
+
+	Error struct {
+		code  int
+		param interface{}
+	}
 )
 
 const (
-	ID_NULL = ""
+	ID_NULL       = ""
+	ERR_NOT_FOUND = 1
 )
+
+func CheckError(e error, code int) bool {
+	if e == nil {
+		return false
+	}
+	err, ok := e.(*Error)
+	if !ok {
+		return false
+	}
+	return err.code == code
+}
+
+func NewError(code int, param interface{}) *Error {
+	return &Error{code, param}
+}
+
+func (e *Error) Error() string {
+	switch e.code {
+	case ERR_NOT_FOUND:
+		return fmt.Sprint(e.param, " not found.")
+	}
+	return ""
+}
 
 func (t ISO8601Time) MarshalJSON() ([]byte, error) {
 	stamp := fmt.Sprintf("\"%s\"", time.Time(t).Format("2006-01-02T15:04:05-0700"))

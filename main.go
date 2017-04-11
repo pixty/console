@@ -23,7 +23,7 @@ func main() {
 		logger.Info("Running in DEBUG mode")
 	}
 
-	injector := inject.NewInjector(log4g.GetLogger("console.injector"))
+	injector := inject.NewInjector(log4g.GetLogger("console.injector"), log4g.GetLogger("fb.injector"))
 
 	defer injector.Shutdown()
 	defer log4g.Shutdown()
@@ -33,15 +33,10 @@ func main() {
 
 	restApi := rapi.NewAPI()
 	mongo := model.NewMongoPersister()
-	camService := service.NewDefaultCameraService()
-	orgService := service.NewDefaultOrgService()
 	imgService := service.NewDefaultImageService()
-	lbs := service.NewLfsBlobStorage()
-	defContextFactory := common.NewContextFactory()
+	lbs := service.NewLfsBlobStorage(cc.LbsDir)
 
 	injector.RegisterMany(cc, restApi)
-	injector.RegisterOne(camService, "camService")
-	injector.RegisterOne(orgService, "orgService")
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(mongo, "persister")

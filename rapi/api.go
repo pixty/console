@@ -1,6 +1,7 @@
 package rapi
 
 import (
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -76,12 +77,10 @@ func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	scene, err := rctx.getScenes(&common.SceneQuery{
 		CamId: camId,
 	})
-
-	if err != nil {
-		a.logger.Error("Could not get scene by for camId=", camId, ", err=", err)
-		c.JSON(http.StatusInternalServerError, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
+
 	c.JSON(http.StatusOK, scene)
 }
 
@@ -106,9 +105,7 @@ func (a *api) h_GET_profile_persons(c *gin.Context, profileId common.Id) {
 	now := common.CurrentTimestamp()
 
 	pers, err := rctx.getPersonsByQuery(&common.PersonsQuery{ProfileId: profileId, Limit: 100, FromTime: now})
-	if err != nil {
-		a.logger.Error("Bad request err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
 
@@ -121,15 +118,12 @@ func (a *api) h_POST_profile_persons(c *gin.Context, profileId common.Id) {
 	rctx := a.newRequestCtx(c)
 	var person Person
 	err := c.Bind(&person)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
 
 	err = rctx.associatePersonToProfile(&person, profileId)
-	if err != nil {
-		a.logger.Warn("Could not complete person to profile association. err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
 
@@ -166,16 +160,12 @@ func (a *api) h_POST_profile(c *gin.Context) {
 
 	var profile Profile
 	err := c.Bind(&profile)
-	if err != nil {
-		a.logger.Warn("Could not turn body to profile object, err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
 
 	prfId, err := rctx.newProfile(&profile)
-	if err != nil {
-		a.logger.Error("Could not create new Profile err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+	if a.errorResponse(c, err) {
 		return
 	}
 
@@ -189,10 +179,48 @@ func (a *api) h_GET_pictures_pic(c *gin.Context, picId common.Id) {
 	a.logger.Debug("GET /pictures/", picId)
 	rctx := a.newRequestCtx(c)
 
+	pi, err := rctx.getPictureInfo(picId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, pi)
 }
 
 // GET /pictures/:picId/download
 func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
+	a.logger.Debug("GET /pictures/", picId, "/download")
+
+	r := c.Request
+	w := c.Writer
+	imgD := a.ImgService.Read(picId, false)
+	if imgD == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	fn := imgD.FileName
+	rd := imgD.Reader.(io.ReadSeeker)
+	ts := imgD.Timestamp
+
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
+
+	http.ServeContent(w, r, fn, ts.ToTime(), rd)
+}
+
+func (a *api) errorResponse(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if common.CheckError(err, common.ERR_NOT_FOUND) {
+		a.logger.Warn("Not Found err=", err)
+		c.JSON(http.StatusNotFound, err.Error())
+		return true
+	}
+
+	a.logger.Warn("Bad request err=", err)
+	c.JSON(http.StatusBadRequest, err.Error())
+	return true
 }
 
 //// GET /organizations/:orgId/cameras

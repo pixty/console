@@ -226,6 +226,17 @@ func (rc *RequestCtx) newProfile(profile *Profile) (common.Id, error) {
 	return id, err
 }
 
-func (rc *RequestCtx) getPictureInfo(picId *common.Id) (*PictureInfo, error) {
+func (rc *RequestCtx) getPictureInfo(picId common.Id) (*PictureInfo, error) {
+	imgD := rc.a.ImgService.Read(picId, false)
+	if imgD == nil {
+		return nil, common.NewError(common.ERR_NOT_FOUND, "Picture with id="+string(picId))
+	}
 
+	pi := new(PictureInfo)
+	pi.Id = imgD.Id
+	pi.CamId = imgD.CamId
+	pi.Size.H = imgD.Height
+	pi.Size.W = imgD.Width
+	pi.Timestamp = imgD.Timestamp.ToISO8601Time()
+	return pi, nil
 }
