@@ -48,7 +48,10 @@ type (
 	}
 
 	BlobMeta struct {
-		KVPairs map[string]interface{}
+		Id        Id
+		KVPairs   map[string]interface{}
+		Timestamp Timestamp
+		Size      int64
 	}
 
 	BlobStorage interface {
@@ -106,7 +109,7 @@ func (t ISO8601Time) MarshalJSON() ([]byte, error) {
 }
 
 func NewBlobMeta() *BlobMeta {
-	return &BlobMeta{make(map[string]interface{})}
+	return &BlobMeta{ID_NULL, make(map[string]interface{}), CurrentTimestamp(), 0}
 }
 
 func (bm *BlobMeta) String() string {

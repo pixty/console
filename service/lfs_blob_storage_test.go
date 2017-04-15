@@ -1,14 +1,17 @@
 package service
 
-import "testing"
-import "github.com/pixty/console/common"
-import "os"
-import "path/filepath"
-import "strings"
-import "fmt"
-import "reflect"
-import "bytes"
-import "io"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/pixty/console/common"
+)
 
 func TestRWCycle(t *testing.T) {
 	lbs := initLbs()
@@ -51,7 +54,7 @@ func TestRWMetaNil(t *testing.T) {
 		t.Fatal("Data should be found")
 	}
 
-	if meta2 != nil {
+	if meta2 != nil && len(meta2.KVPairs) != 0 {
 		t.Fatal("Meta meta2=" + meta2.String() + "doesn't look it's equal to nil")
 	}
 
@@ -73,7 +76,7 @@ func TestStandartCycle(t *testing.T) {
 
 	lbs.Shutdown()
 
-	lbs2 := NewLfsBlobStorage(lbs.storeDir)
+	lbs2 := NewLfsBlobStorage(lbs.storeDir, 1000000000)
 
 	r2, meta2 := lbs2.Read(id)
 	if r2 == nil {
@@ -115,7 +118,7 @@ func TestDelete(t *testing.T) {
 }
 
 func initLbs() *LfsBlobStorage {
-	lbs := NewLfsBlobStorage(getUniqueDir())
+	lbs := NewLfsBlobStorage(getUniqueDir(), 1000000000)
 	return lbs
 }
 
