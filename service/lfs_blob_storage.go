@@ -175,6 +175,7 @@ func (lbs *LfsBlobStorage) Delete(objId common.Id) error {
 
 	delete(lbs.objects, objId)
 	os.Remove(fileName)
+	lbs.lru.DeleteWithCallback(objId, false)
 	return nil
 }
 

@@ -117,6 +117,41 @@ func TestDelete(t *testing.T) {
 	lbs.Shutdown()
 }
 
+func TestSize(t *testing.T) {
+	lbs := NewLfsBlobStorage(getUniqueDir(), 15)
+
+	defer removeDir(lbs.storeDir)
+
+	meta := common.NewBlobMeta()
+	meta.KVPairs["key"] = "val"
+	data := "0123456789"
+	r := strings.NewReader(data)
+	id, _ := lbs.Add(r, meta)
+
+	if lbs.ReadMeta(id) == nil {
+		t.Fatal("Should Be there")
+	}
+
+	meta = common.NewBlobMeta()
+	meta.KVPairs["key"] = "val"
+	data = "0123456789"
+	r = strings.NewReader(data)
+	id2, _ := lbs.Add(r, meta)
+
+	if lbs.ReadMeta(id) != nil {
+		t.Fatal("Should Be dropped")
+	}
+	if lbs.ReadMeta(id2) == nil {
+		t.Fatal("Should Be there id2")
+	}
+
+	if lbs.Delete(id2) != nil {
+		t.Fatal("id2 should be safely deleted")
+	}
+
+	lbs.Shutdown()
+}
+
 func initLbs() *LfsBlobStorage {
 	lbs := NewLfsBlobStorage(getUniqueDir(), 1000000000)
 	return lbs
