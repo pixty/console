@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/pixty/fpcp"
 	"github.com/satori/go.uuid"
 )
 
@@ -30,7 +31,7 @@ type (
 
 	ImageDescriptor struct {
 		Id        Id
-		Reader    io.ReadCloser
+		Reader    io.Reader
 		FileName  string
 		CamId     Id
 		Width     int
@@ -39,6 +40,7 @@ type (
 	}
 
 	ImageService interface {
+		// Store the image. id can be provided. If not, the new one will be generated
 		New(id *ImageDescriptor) (Id, error)
 
 		// Returns image descriptor by an image Id. If noData == true, then
@@ -67,6 +69,12 @@ type (
 
 		// Deletes an object by its id. Returns error != nil if the object is not found
 		Delete(objId Id) error
+	}
+
+	SceneService interface {
+		// Returns Http Scene Processor implementation to wire up with gin
+		GetHttpSceneProcessor() *fpcp.HttpSceneProcessor
+		GetScene(ctx CtxHolder, camId Id) (*Scene, error)
 	}
 
 	Error struct {

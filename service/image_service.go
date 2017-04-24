@@ -14,15 +14,14 @@ type DefaultImageService struct {
 }
 
 const (
-	ckFileName  = "fn"
-	ckCamId     = "cid"
-	ckTimestamp = "ts"
-	ckWidth     = "w"
-	ckHeight    = "h"
+	ckFileName = "fn"
+	ckCamId    = "cid"
+	ckWidth    = "w"
+	ckHeight   = "h"
 )
 
 func NewDefaultImageService() *DefaultImageService {
-	return &DefaultImageService{logger: log4g.GetLogger("console.service.imageService")}
+	return &DefaultImageService{logger: log4g.GetLogger("pixty.service.images")}
 }
 
 func (imgS *DefaultImageService) New(id *common.ImageDescriptor) (common.Id, error) {
@@ -54,9 +53,10 @@ func (imgS *DefaultImageService) Read(imgId common.Id, noData bool) *common.Imag
 
 func toBlobMeta(id *common.ImageDescriptor) *common.BlobMeta {
 	bMeta := common.NewBlobMeta()
+	bMeta.Id = id.Id
+	bMeta.Timestamp = id.Timestamp
 	bMeta.KVPairs[ckFileName] = id.FileName
 	bMeta.KVPairs[ckCamId] = id.CamId
-	bMeta.KVPairs[ckTimestamp] = strconv.FormatInt(int64(id.Timestamp), 10)
 	bMeta.KVPairs[ckWidth] = strconv.FormatInt(int64(id.Width), 10)
 	bMeta.KVPairs[ckHeight] = strconv.FormatInt(int64(id.Height), 10)
 	return bMeta
@@ -66,12 +66,12 @@ func toImageDesc(b *common.BlobMeta) *common.ImageDescriptor {
 	id := new(common.ImageDescriptor)
 	id.FileName = b.KVPairs[ckFileName].(string)
 	id.CamId = common.Id(b.KVPairs[ckCamId].(string))
+	id.Id = b.Id
+	id.Timestamp = b.Timestamp
 
-	ts, _ := strconv.ParseInt(b.KVPairs[ckTimestamp].(string), 10, 64)
 	w, _ := strconv.ParseInt(b.KVPairs[ckWidth].(string), 10, 64)
 	h, _ := strconv.ParseInt(b.KVPairs[ckWidth].(string), 10, 64)
 
-	id.Timestamp = common.Timestamp(ts)
 	id.Width = int(w)
 	id.Height = int(h)
 	return id

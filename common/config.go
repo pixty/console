@@ -6,8 +6,9 @@ const (
 	CnConsoleConfig = "ConsoleConfig"
 
 	// *** Component phases ***
-	CMP_PHASE_DB         = 1
-	CMP_PHASE_BLOB_STORE = 0
+	CMP_PHASE_BLOB_STORE    = 0
+	CMP_PHASE_DB            = 1
+	CMP_PHASE_SCENE_SERVICE = 2
 )
 
 type ConsoleConfig struct {
@@ -28,7 +29,8 @@ type ConsoleConfig struct {
 	MongoPasswd     string
 
 	// Local File System Blob Storage
-	LbsDir string
+	LbsDir     string
+	LbsMaxSize int64
 }
 
 // Set up default config values
@@ -39,6 +41,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.MongoTimeoutSec = 60
 	cc.MongoDatabase = "pixty"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
+	cc.LbsMaxSize = 1000000000 // 1gig
 	return cc
 }
 

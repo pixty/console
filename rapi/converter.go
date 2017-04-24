@@ -105,7 +105,8 @@ func (rc *RequestCtx) toPerson(person *common.Person) *Person {
 
 func (rc *RequestCtx) getProfile(pid common.Id) *Profile {
 	prfDAO := rc.getTxPersister().GetCrudExecutor(common.STGE_PROFILE)
-	prf := prfDAO.Read(pid).(*common.Profile)
+	prf := &common.Profile{}
+	prfDAO.Read(pid, prf)
 	return rc.toProfile(prf)
 }
 
@@ -183,16 +184,18 @@ func (rc *RequestCtx) associatePersonToProfile(person *Person, profileId common.
 	}
 
 	prsnDAO := rc.getTxPersister().GetCrudExecutor(common.STGE_PERSON)
-	p := prsnDAO.Read(person.Id).(*common.Person)
-	if p == nil {
-		rc.logger.Warn("personId=", person.Id, " is not found")
+	p := &common.Person{}
+	err := prsnDAO.Read(person.Id, p)
+	if err != nil {
+		rc.logger.Warn("personId=", person.Id, " is not found? err=", err)
 		return errors.New("Person with Id=" + string(person.Id) + " is not found.")
 	}
 
 	prfDAO := rc.getTxPersister().GetCrudExecutor(common.STGE_PROFILE)
-	prf := prfDAO.Read(profileId).(*common.Profile)
-	if prf == nil {
-		rc.logger.Warn("profileId=", profileId, " is not found")
+	prf := &common.Profile{}
+	err = prfDAO.Read(profileId, prf)
+	if err != nil {
+		rc.logger.Warn("profileId=", profileId, " is not found? err=", err)
 		return errors.New("Profile with Id=" + string(profileId) + " is not found.")
 	}
 
@@ -200,7 +203,7 @@ func (rc *RequestCtx) associatePersonToProfile(person *Person, profileId common.
 	rc.logger.Info("Person Match ", pm, ", uses 0% uccuracy due to manual association.")
 
 	p.Profile = pm
-	err := prsnDAO.Update(p)
+	err = prsnDAO.Update(p.Id, p)
 	if err != nil {
 		rc.logger.Warn("Could not update profile. err=", err)
 		return err

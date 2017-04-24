@@ -6,6 +6,7 @@ import (
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
+	"golang.org/x/net/context"
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -14,7 +15,8 @@ func TestGetPersonsById(t *testing.T) {
 	mp.Config = common.NewConsoleConfig()
 	mp.Config.MongoDatabase = "__pixty__test__"
 
-	log4g.SetLogLevel("console.mongo", log4g.DEBUG)
+	log4g.SetLogLevel("pixty.mongo", log4g.DEBUG)
+	log := log4g.GetLogger("pixty.mongo")
 
 	if err := mp.DiInit(); err != nil {
 		t.Fatal("Could not initialize ", err)
@@ -24,7 +26,7 @@ func TestGetPersonsById(t *testing.T) {
 	// for the test only
 	defer mp.dropDatabase()
 
-	tx := mp.NewTxPersister()
+	tx := mp.NewTxPersister(context.Background())
 	ids1 := createPersons(tx, 5)
 	findPersons(t, tx, ids1, 5)
 	ids2 := createPersons(tx, 5)
@@ -33,6 +35,31 @@ func TestGetPersonsById(t *testing.T) {
 	findPersons(t, tx, ids3, 10)
 	ids3 = append(ids3, ids2...)
 	findPersons(t, tx, ids3, 10)
+
+	// delete
+	col := tx.GetCrudExecutor(common.STGE_PERSON)
+	id := ids3[0]
+	p := &common.Person{SeenAt: 12341435}
+	err := col.Read(id, p)
+	if err != nil {
+		t.Fatal("Could not find err=", err)
+	}
+
+	log.Info("Read p=", p)
+
+	err = col.Update(p.Id, p)
+	if err != nil {
+		t.Fatal("Could not update, err=", err)
+	}
+
+	err = col.Delete(id)
+	if err != nil {
+		t.Fatal("Could not delete err=", err)
+	}
+
+	if col.Read(id, p) == nil {
+		t.Fatal(id, " should be deleted.")
+	}
 }
 
 func createPersons(tx common.TxPersister, persons int) []common.Id {

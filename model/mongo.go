@@ -2,12 +2,14 @@ package model
 
 import (
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
+	"golang.org/x/net/context"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -42,7 +44,7 @@ type crudExec struct {
 }
 
 func NewMongoPersister() *MongoPersister {
-	return &MongoPersister{logger: log4g.GetLogger("console.mongo"), mlogger: log4g.GetLogger("mongo.mgo")}
+	return &MongoPersister{logger: log4g.GetLogger("pixty.mongo"), mlogger: log4g.GetLogger("mongo.mgo")}
 }
 
 // ============================= LifeCycler ==================================
@@ -90,7 +92,7 @@ func (mp *MongoPersister) Output(calldepth int, s string) error {
 }
 
 // ============================= Persister ===================================
-func (mp *MongoPersister) NewTxPersister() common.TxPersister {
+func (mp *MongoPersister) NewTxPersister(ctx context.Context) common.TxPersister {
 	return mp.new_txPersister()
 }
 
@@ -172,7 +174,7 @@ func (tx *txPersister) FindPersons(query *common.PersonsQuery) ([]*common.Person
 		mq = colPersons.Find(q)
 	} else if query.ProfileId != common.ID_NULL {
 		q := bson.M{"$and": []bson.M{bson.M{"seenAt": bson.M{"$lte": query.FromTime}}, bson.M{"profileId": query.ProfileId}}}
-		mq = colPersons.Find(q).Sort("-seenAt").Limit(query.Limit)
+		mq = colPersons.Find(q).Sort("-seenAt").Limit(normLimit(query.Limit))
 	} else {
 		logger.Warn("FindPersons(): bad query = ", query)
 		return nil, errors.New("list of person Ids or profile Id should be specified")
@@ -192,7 +194,7 @@ func (tx *txPersister) GetScenes(query *common.SceneQuery) ([]*common.Scene, err
 	q := bson.M{"camId": query.CamId}
 	col := tx.getMgoCollection(cColScene)
 	var res []*common.Scene
-	it := col.Find(q).Sort("-timestamp").Limit(query.Limit).Iter()
+	it := col.Find(q).Sort("-timestamp").Limit(normLimit(query.Limit)).Iter()
 	err := it.All(&res)
 	it.Close()
 	return res, err
@@ -231,25 +233,28 @@ func (ce *crudExec) CreateMany(objs ...interface{}) error {
 	return ce.collection.Insert(objs...)
 }
 
-func (ce *crudExec) Read(id common.Id) interface{} {
-	result := reflect.New(ce.instType)
-	err := ce.collection.FindId(id).One(&result)
-	ce.logger.Debug("Read by id=", id, ", found=", result, " err=", err)
-	if err != nil {
-		return nil
-	}
-	return result
+func (ce *crudExec) Read(id common.Id, res interface{}) error {
+	err := ce.collection.FindId(id).One(res)
+	ce.logger.Debug("Read by id=", id, ", found=", res, " err=", err)
+	return err
 }
 
-func (ce *crudExec) Update(o interface{}) error {
-	ce.logger.Debug("Update ", o)
-	id := reflect.ValueOf(o).Elem().FieldByName("Id")
+func (ce *crudExec) Update(id common.Id, o interface{}) error {
+	ce.logger.Debug("Update ", o, ", id=", id)
 	selector := bson.M{"_id": id}
-	return ce.collection.Update(selector, o)
+	_, err := ce.collection.Upsert(selector, o)
+	return err
 }
 
 func (ce *crudExec) Delete(id common.Id) error {
 	ce.logger.Debug("Delete by id=", id)
 	selector := bson.M{"_id": id}
 	return ce.collection.Remove(selector)
+}
+
+func normLimit(limit int) int {
+	if limit <= 0 {
+		return math.MaxInt32
+	}
+	return limit
 }

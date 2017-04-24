@@ -27,7 +27,7 @@ type LfsBlobStorage struct {
 }
 
 func NewLfsBlobStorage(storeDir string, maxSize int64) *LfsBlobStorage {
-	logger := log4g.GetLogger("console.service.LFSBlobStorage")
+	logger := log4g.GetLogger("pixty.service.LfsBlobStorage")
 	result := &LfsBlobStorage{logger: logger, storeDir: storeDir}
 	result.lru = gorivets.NewLRU(maxSize, result.onLRUDelete)
 	err := result.init()
@@ -38,6 +38,18 @@ func NewLfsBlobStorage(storeDir string, maxSize int64) *LfsBlobStorage {
 }
 
 // ============================= LifeCycler ==================================
+func (lbs *LfsBlobStorage) DiPhase() int {
+	return common.CMP_PHASE_BLOB_STORE
+}
+
+func (lbs *LfsBlobStorage) DiInit() error {
+	return nil
+}
+
+func (lbs *LfsBlobStorage) DiShutdown() {
+	lbs.Shutdown()
+}
+
 func (lbs *LfsBlobStorage) init() error {
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
@@ -79,7 +91,10 @@ func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, 
 		bMeta = common.NewBlobMeta()
 	}
 
-	id := common.NewId()
+	id := bMeta.Id
+	if id == common.ID_NULL {
+		id = common.NewId()
+	}
 	fileName, err := lbs.getFilePath(string(id))
 	if err != nil {
 		lbs.logger.Error("Could not create path for id=", id)

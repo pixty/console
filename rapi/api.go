@@ -15,13 +15,13 @@ import (
 )
 
 type api struct {
-	ge         *gin.Engine
-	Config     *common.ConsoleConfig `inject:""`
-	OrgService common.OrgService     `inject:"orgService"`
-	ImgService common.ImageService   `inject:"imgService"`
-	MainCtx    context.Context       `inject:"mainCtx"`
-	Persister  common.Persister      `inject:"persister"`
-	logger     log4g.Logger
+	ge           *gin.Engine
+	Config       *common.ConsoleConfig `inject:""`
+	SceneService common.SceneService   `inject:"sceneService"`
+	ImgService   common.ImageService   `inject:"imgService"`
+	MainCtx      context.Context       `inject:"mainCtx"`
+	Persister    common.Persister      `inject:"persister"`
+	logger       log4g.Logger
 }
 
 func NewAPI() *api {
@@ -35,7 +35,7 @@ func (a *api) DiPostConstruct() {
 	}
 
 	a.ge = gin.New()
-	a.logger = log4g.GetLogger("console.rest")
+	a.logger = log4g.GetLogger("pixty.rest")
 	a.logger.Info("Constructing ReST API")
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
@@ -49,6 +49,12 @@ func (a *api) DiPostConstruct() {
 	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
 	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
 	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
+
+	// FPCP endpoints
+	a.logger.Info("Registering FPCP endpoints...")
+	sp := a.SceneService.GetHttpSceneProcessor()
+	a.endpoint("GET", "/fpcp/:fpId", sp.GETHandler)
+	a.endpoint("POST", "/fpcp/:fpId", sp.POSTHandler)
 }
 
 func (a *api) String() string {

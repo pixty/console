@@ -17,13 +17,13 @@ func main() {
 	}
 
 	initLoging(cc)
-	logger := log4g.GetLogger("console")
+	logger := log4g.GetLogger("pixty")
 	if cc.DebugMode {
-		log4g.SetLogLevel("console", log4g.DEBUG)
+		log4g.SetLogLevel("pixty", log4g.DEBUG)
 		logger.Info("Running in DEBUG mode")
 	}
 
-	injector := inject.NewInjector(log4g.GetLogger("console.injector"), log4g.GetLogger("fb.injector"))
+	injector := inject.NewInjector(log4g.GetLogger("pixty.injector"), log4g.GetLogger("fb.injector"))
 
 	defer injector.Shutdown()
 	defer log4g.Shutdown()
@@ -34,13 +34,15 @@ func main() {
 	restApi := rapi.NewAPI()
 	mongo := model.NewMongoPersister()
 	imgService := service.NewDefaultImageService()
-	lbs := service.NewLfsBlobStorage(cc.LbsDir)
+	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.LbsMaxSize)
+	scnService := service.NewSceneService()
 
 	injector.RegisterMany(cc, restApi)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(mongo, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
+	injector.RegisterOne(scnService, "sceneService")
 	injector.Construct()
 
 	restApi.Run()
