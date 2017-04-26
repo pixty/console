@@ -74,7 +74,7 @@ type (
 	SceneService interface {
 		// Returns Http Scene Processor implementation to wire up with gin
 		GetHttpSceneProcessor() *fpcp.HttpSceneProcessor
-		GetScene(ctx CtxHolder, camId Id) (*Scene, error)
+		GetScenes(ctx CtxHolder, q SceneQuery) ([]*Scene, error)
 	}
 
 	Error struct {

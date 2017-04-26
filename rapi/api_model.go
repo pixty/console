@@ -58,10 +58,12 @@ type (
 
 		// Identifies a rectangle on the picture. Can be populated when the
 		// object is used for describing a face (in Person object for instance)
-		Rect *fpcp.Rect `json:"rect"`
+		Rect   *fpcp.Rect `json:"rect"`
+		PicURL string     `json:"url"`
 	}
 
 	Scene struct {
+		PicURL    string             `json:"url"`
 		CamId     common.Id          `json:"camId"`
 		Timestamp common.ISO8601Time `json:"timestamp"`
 		Persons   []*Person          `json:"persons"`

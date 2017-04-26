@@ -1,10 +1,15 @@
 package rapi
 
 import (
+	"bytes"
+	"errors"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jrivets/log4g"
@@ -49,6 +54,7 @@ func (a *api) DiPostConstruct() {
 	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
 	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
 	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
+	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
 
 	// FPCP endpoints
 	a.logger.Info("Registering FPCP endpoints...")
@@ -211,6 +217,93 @@ func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
 
 	http.ServeContent(w, r, fn, ts.ToTime(), rd)
+}
+
+// GET /images/:imgName
+// the image name is encoded like <id>[_l_t_r_b].png
+//
+// so the size part can be missed. Valid names are:
+// asbasdfasdf-234.png	 - no region
+// 1234987239487.png	 - no region
+// 12341234_0_3_200_300.png - get the region(l:0, t:3, r:200, b:300) for 12341234.png
+func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
+	a.logger.Trace("GET /images/", imgName)
+
+	imgId, rect, err := parseImgName(imgName)
+	if err != nil {
+		a.logger.Warn("Cannot parse image name err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+	}
+
+	w := c.Writer
+	imgD := a.ImgService.Read(imgId, false)
+	if imgD == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	r := c.Request
+	rd := imgD.Reader.(io.ReadSeeker)
+
+	if rect != nil {
+		img, err := png.Decode(imgD.Reader)
+		if err != nil {
+			a.logger.Warn("Cannot decode png image err=", err)
+			c.JSON(http.StatusBadRequest, err.Error())
+		}
+
+		si := img.(interface {
+			SubImage(r image.Rectangle) image.Image
+		}).SubImage(*rect)
+
+		bb := bytes.NewBuffer([]byte{})
+		err = png.Encode(bb, si)
+		if err != nil {
+			a.logger.Warn("Cannot encode png image err=", err)
+			c.JSON(http.StatusBadRequest, err.Error())
+		}
+		rd = bytes.NewReader(bb.Bytes())
+	}
+
+	fn := imgName
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
+	http.ServeContent(w, r, fn, imgD.Timestamp.ToTime(), rd)
+}
+
+func parseImgName(imgName string) (common.Id, *image.Rectangle, error) {
+	var nilId common.Id
+	if !strings.HasSuffix(imgName, ".png") {
+		return nilId, nil, errors.New("Expecting .png filename, but received " + imgName)
+	}
+
+	nameOnly := strings.TrimSuffix(imgName, ".png")
+	parts := strings.Split(nameOnly, "_")
+	if len(parts) == 1 {
+		// ok, no rectangle encoded
+		return common.Id(nameOnly), nil, nil
+	}
+	if len(parts) != 5 {
+		return nilId, nil, errors.New("Expecting image in <id>_<x0>_<y0>_<x1>_<y1>.png format")
+	}
+
+	x0, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nilId, nil, err
+	}
+	y0, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return nilId, nil, err
+	}
+	x1, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return nilId, nil, err
+	}
+	y1, err := strconv.Atoi(parts[4])
+	if err != nil {
+		return nilId, nil, err
+	}
+	rect := image.Rect(x0, y0, x1, y1)
+	return common.Id(nameOnly), &rect, nil
 }
 
 func (a *api) errorResponse(c *gin.Context, err error) bool {

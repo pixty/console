@@ -62,7 +62,7 @@ func (ss *SceneService) GetHttpSceneProcessor() *fpcp.HttpSceneProcessor {
 	return ss.fpcpSp
 }
 
-func (ss *SceneService) GetScene(ctx common.CtxHolder, camId common.Id) (*common.Scene, error) {
+func (ss *SceneService) GetScenes(ctx common.CtxHolder, q common.SceneQuery) ([]*common.Scene, error) {
 	return nil, nil
 }
 
