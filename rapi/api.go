@@ -2,14 +2,12 @@ package rapi
 
 import (
 	"bytes"
-	"errors"
 	"image"
 	"image/png"
 	"io"
 	"net/http"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jrivets/log4g"
@@ -88,6 +86,7 @@ func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	rctx := a.newRequestCtx(c)
 	scene, err := rctx.getScenes(&common.SceneQuery{
 		CamId: camId,
+		Limit: 1,
 	})
 	if a.errorResponse(c, err) {
 		return
@@ -233,11 +232,13 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 	if err != nil {
 		a.logger.Warn("Cannot parse image name err=", err)
 		c.JSON(http.StatusBadRequest, err.Error())
+		return
 	}
 
 	w := c.Writer
 	imgD := a.ImgService.Read(imgId, false)
 	if imgD == nil {
+		a.logger.Warn("Could not find image with id=", imgId, ", err=", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -250,6 +251,7 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 		if err != nil {
 			a.logger.Warn("Cannot decode png image err=", err)
 			c.JSON(http.StatusBadRequest, err.Error())
+			return
 		}
 
 		si := img.(interface {
@@ -261,6 +263,7 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 		if err != nil {
 			a.logger.Warn("Cannot encode png image err=", err)
 			c.JSON(http.StatusBadRequest, err.Error())
+			return
 		}
 		rd = bytes.NewReader(bb.Bytes())
 	}
@@ -268,42 +271,6 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 	fn := imgName
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
 	http.ServeContent(w, r, fn, imgD.Timestamp.ToTime(), rd)
-}
-
-func parseImgName(imgName string) (common.Id, *image.Rectangle, error) {
-	var nilId common.Id
-	if !strings.HasSuffix(imgName, ".png") {
-		return nilId, nil, errors.New("Expecting .png filename, but received " + imgName)
-	}
-
-	nameOnly := strings.TrimSuffix(imgName, ".png")
-	parts := strings.Split(nameOnly, "_")
-	if len(parts) == 1 {
-		// ok, no rectangle encoded
-		return common.Id(nameOnly), nil, nil
-	}
-	if len(parts) != 5 {
-		return nilId, nil, errors.New("Expecting image in <id>_<x0>_<y0>_<x1>_<y1>.png format")
-	}
-
-	x0, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return nilId, nil, err
-	}
-	y0, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return nilId, nil, err
-	}
-	x1, err := strconv.Atoi(parts[3])
-	if err != nil {
-		return nilId, nil, err
-	}
-	y1, err := strconv.Atoi(parts[4])
-	if err != nil {
-		return nilId, nil, err
-	}
-	rect := image.Rect(x0, y0, x1, y1)
-	return common.Id(nameOnly), &rect, nil
 }
 
 func (a *api) errorResponse(c *gin.Context, err error) bool {
@@ -322,69 +289,6 @@ func (a *api) errorResponse(c *gin.Context, err error) bool {
 	return true
 }
 
-//// GET /organizations/:orgId/cameras
-//func (a *api) getOrgCameras(c *gin.Context, orgId common.Id) {
-//	a.logger.Debug("GET /organizations/", orgId, "/cameras")
-//	result := a.CamService.GetByOrgId(orgId)
-//	c.JSON(http.StatusOK, result)
-//}
-
-// POST /images
-//func (a *api) newImage(c *gin.Context) {
-//	a.logger.Debug("POST /images")
-
-//	iDesc := &common.ImageDescriptor{CamId: "c1"}
-//	file, header, err := c.Request.FormFile("file")
-//	if err != nil {
-//		a.logger.Error("could not obtain file for upload err=", err)
-//		c.JSON(http.StatusBadRequest, err.Error())
-//		return
-//	}
-
-//	iDesc.FileName = header.Filename
-//	iDesc.Timestamp = common.CurrentTimestamp()
-//	iDesc.Reader = file
-
-//	id, err := a.ImgService.New(iDesc)
-//	c.Status(http.StatusCreated)
-//	a.logger.Info("New image with id=", id, " is created")
-
-//	r := c.Request
-//	w := c.Writer
-//	w.Header().Set("Location", composeURI(r, string(id)))
-//}
-
-// GET /images/:imgId
-//func (a *api) getImageById(c *gin.Context, imgId common.Id) {
-//	a.logger.Debug("GET /images/", imgId)
-//	r := c.Request
-//	w := c.Writer
-
-//	imgD := a.ImgService.Read(imgId)
-//	if imgD == nil {
-//		w.WriteHeader(http.StatusNotFound)
-//		return
-//	}
-//	fn := imgD.FileName
-//	rd := imgD.Reader.(io.ReadSeeker)
-//	ts := imgD.Timestamp
-
-//	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
-
-//	http.ServeContent(w, r, fn, ts.ToTime(), rd)
-//}
-
-// GET /cameras/:camId
-//func (a *api) getSceneByCamId(c *gin.Context, camId common.Id) {
-//	a.logger.Debug("GET /cameras/", camId)
-
-//	ctx := a.CtxFactory.NewContext()
-//	defer ctx.Close()
-
-//	pls := a.CamService.GetScene(ctx, camId)
-//	c.JSON(http.StatusOK, a.toScene(camId, pls))
-//}
-
 func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFunc) {
 	a.logger.Info("Registering endpoint: ", method, " ", relativePath, " funcs: ", handler)
 	switch method {
@@ -397,29 +301,6 @@ func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFu
 		panic("cannot register endpoint: " + method + " " + relativePath)
 	}
 }
-
-//func (a *api) toScene(camId common.Id, pl []*common.PersonLog) *Scene {
-//	var persons []*ScenePerson
-//	scTime := common.CurrentISO8601Time()
-//	if pl != nil && len(pl) != 0 {
-//		scTime = pl[0].SceneTs.ToISO8601Time()
-//		persons = make([]*ScenePerson, 0, len(pl))
-//		for _, p := range pl {
-//			persons = append(persons, a.toScenePerson(p))
-//		}
-//	}
-//	return &Scene{CamId: camId, Timestamp: scTime, Persons: persons}
-//}
-
-//func (a *api) toScenePerson(p *common.PersonLog) *ScenePerson {
-//	res := &ScenePerson{}
-//	res.Person = &Person{Id: p.PersonId}
-//	res.CapturedAt = p.CaptureTs.ToISO8601Time()
-//	res.PicId = p.Snapshot.ImageId
-//	res.PicPos = &p.Snapshot.Position
-//	res.PicTime = p.Snapshot.Timestamp.ToISO8601Time()
-//	return res
-//}
 
 func (a *api) newRequestCtx(c *gin.Context) *RequestCtx {
 	rctx := newRequestCtx(a, a.newContext())

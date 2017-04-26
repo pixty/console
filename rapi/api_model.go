@@ -35,7 +35,7 @@ type (
 
 	Person struct {
 		Id         common.Id          `json:"id"`
-		CamId      common.Id          `json:"camId"`
+		CamId      *common.Id         `json:"camId,omitempty"`
 		CapturedAt common.ISO8601Time `json:"capturedAt"`
 		LostAt     common.ISO8601Time `json:"lostAt"`
 
@@ -51,21 +51,22 @@ type (
 	}
 
 	PictureInfo struct {
-		Id        common.Id          `json:"id"`
-		CamId     common.Id          `json:"camId"`
-		Timestamp common.ISO8601Time `json:"timestamp"`
-		Size      fpcp.RectSize      `json:"size"`
+		Id        common.Id           `json:"id"`
+		CamId     *common.Id          `json:"camId,omitempty"`
+		Timestamp *common.ISO8601Time `json:"timestamp,omitempty"`
+		Size      *fpcp.RectSize      `json:"size,omitempty"`
 
 		// Identifies a rectangle on the picture. Can be populated when the
 		// object is used for describing a face (in Person object for instance)
-		Rect   *fpcp.Rect `json:"rect"`
-		PicURL string     `json:"url"`
+		Rect    *fpcp.Rect `json:"rect,omitempty"`
+		PicURL  string     `json:"picURL"`
+		FaceURL *string    `json:"url,omitempty"`
 	}
 
 	Scene struct {
 		PicURL    string             `json:"url"`
 		CamId     common.Id          `json:"camId"`
-		Timestamp common.ISO8601Time `json:"timestamp"`
+		Timestamp common.ISO8601Time `json:"timestamp,omitempty"`
 		Persons   []*Person          `json:"persons"`
 	}
 )

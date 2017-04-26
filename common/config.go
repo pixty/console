@@ -31,6 +31,9 @@ type ConsoleConfig struct {
 	// Local File System Blob Storage
 	LbsDir     string
 	LbsMaxSize int64
+
+	// HTTP images endpoint prefix
+	ImgsPrefix string
 }
 
 // Set up default config values
@@ -42,6 +45,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.MongoDatabase = "pixty"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
 	cc.LbsMaxSize = 1000000000 // 1gig
+	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	return cc
 }
 

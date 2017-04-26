@@ -70,7 +70,7 @@ func toImageDesc(b *common.BlobMeta) *common.ImageDescriptor {
 	id.Timestamp = b.Timestamp
 
 	w, _ := strconv.ParseInt(b.KVPairs[ckWidth].(string), 10, 64)
-	h, _ := strconv.ParseInt(b.KVPairs[ckWidth].(string), 10, 64)
+	h, _ := strconv.ParseInt(b.KVPairs[ckHeight].(string), 10, 64)
 
 	id.Width = int(w)
 	id.Height = int(h)

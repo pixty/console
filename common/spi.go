@@ -74,7 +74,7 @@ type (
 	SceneService interface {
 		// Returns Http Scene Processor implementation to wire up with gin
 		GetHttpSceneProcessor() *fpcp.HttpSceneProcessor
-		GetScenes(ctx CtxHolder, q SceneQuery) ([]*Scene, error)
+		GetScenes(ctx CtxHolder, q *SceneQuery) ([]*Scene, error)
 	}
 
 	Error struct {
@@ -112,7 +112,8 @@ func (e *Error) Error() string {
 }
 
 func (t ISO8601Time) MarshalJSON() ([]byte, error) {
-	stamp := fmt.Sprintf("\"%s\"", time.Time(t).Format("2006-01-02T15:04:05-0700"))
+	tm := time.Time(t)
+	stamp := fmt.Sprintf("\"%s\"", tm.Format("2006-01-02T15:04:05-0700"))
 	return []byte(stamp), nil
 }
 

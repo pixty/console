@@ -2,6 +2,10 @@ package rapi
 
 import (
 	"errors"
+	"fmt"
+	"image"
+	"strconv"
+	"strings"
 
 	"gopkg.in/mgo.v2/bson"
 
@@ -58,9 +62,12 @@ func (rc *RequestCtx) toScenes(scenes []*common.Scene) []*Scene {
 
 func (rc *RequestCtx) toScene(scene *common.Scene) *Scene {
 	res := new(Scene)
+	res.PicURL = rc.imgUrl(scene.ImgId, nil)
 	res.CamId = scene.CamId
 	res.Timestamp = scene.Timestamp.ToISO8601Time()
-	res.Persons, _ = rc.getPersonsByQuery(&common.PersonsQuery{PersonIds: scene.PersonsIds})
+	if len(scene.PersonsIds) > 0 {
+		res.Persons, _ = rc.getPersonsByQuery(&common.PersonsQuery{PersonIds: scene.PersonsIds})
+	}
 	return res
 }
 
@@ -90,7 +97,7 @@ func (rc *RequestCtx) getPersons(persons []*common.Person) []*Person {
 func (rc *RequestCtx) toPerson(person *common.Person) *Person {
 	res := &Person{}
 	res.Id = person.Id
-	res.CamId = person.CamId
+	res.CamId = &person.CamId
 
 	if person.Profile != nil {
 		p := rc.getProfile(person.Profile.ProfileId)
@@ -156,6 +163,11 @@ func (rc *RequestCtx) getFaceInfo(face *common.FacePic) *PictureInfo {
 		R: face.Rect.RightBottom.X,
 		B: face.Rect.RightBottom.Y,
 	}
+	faceRec := image.Rect(gorivets.Max(0, pi.Rect.L-10), gorivets.Max(0, pi.Rect.T-10),
+		pi.Rect.R+10, pi.Rect.B+10)
+	pi.PicURL = rc.imgUrl(face.ImageId, nil)
+	furl := rc.imgUrl(face.ImageId, &faceRec)
+	pi.FaceURL = &furl
 	return pi
 }
 
@@ -237,9 +249,57 @@ func (rc *RequestCtx) getPictureInfo(picId common.Id) (*PictureInfo, error) {
 
 	pi := new(PictureInfo)
 	pi.Id = imgD.Id
-	pi.CamId = imgD.CamId
-	pi.Size.H = imgD.Height
-	pi.Size.W = imgD.Width
-	pi.Timestamp = imgD.Timestamp.ToISO8601Time()
+	pi.CamId = &imgD.CamId
+	pi.Size = &fpcp.RectSize{H: imgD.Height, W: imgD.Width}
+	pi.PicURL = rc.imgUrl(imgD.Id, nil)
+	tm := imgD.Timestamp.ToISO8601Time()
+	pi.Timestamp = &tm
 	return pi, nil
+}
+
+func (rc *RequestCtx) imgUrl(imgId common.Id, r *image.Rectangle) string {
+	return rc.a.Config.ImgsPrefix + makeImgName(imgId, r)
+}
+
+func makeImgName(imgId common.Id, r *image.Rectangle) string {
+	if r == nil {
+		return string(imgId) + ".png"
+	}
+	return fmt.Sprint(imgId, "_", r.Min.X, "_", r.Min.Y, "_", r.Max.X, "_", r.Max.Y, ".png")
+}
+
+func parseImgName(imgName string) (common.Id, *image.Rectangle, error) {
+	var nilId common.Id
+	if !strings.HasSuffix(imgName, ".png") {
+		return nilId, nil, errors.New("Expecting .png filename, but received " + imgName)
+	}
+
+	nameOnly := strings.TrimSuffix(imgName, ".png")
+	parts := strings.Split(nameOnly, "_")
+	if len(parts) == 1 {
+		// ok, no rectangle encoded
+		return common.Id(nameOnly), nil, nil
+	}
+	if len(parts) != 5 {
+		return nilId, nil, errors.New("Expecting image in <id>_<x0>_<y0>_<x1>_<y1>.png format")
+	}
+
+	x0, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nilId, nil, err
+	}
+	y0, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return nilId, nil, err
+	}
+	x1, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return nilId, nil, err
+	}
+	y1, err := strconv.Atoi(parts[4])
+	if err != nil {
+		return nilId, nil, err
+	}
+	rect := image.Rect(x0, y0, x1, y1)
+	return common.Id(parts[0]), &rect, nil
 }
