@@ -56,7 +56,7 @@ func toBlobMeta(id *common.ImageDescriptor) *common.BlobMeta {
 	bMeta.Id = id.Id
 	bMeta.Timestamp = id.Timestamp
 	bMeta.KVPairs[ckFileName] = id.FileName
-	bMeta.KVPairs[ckCamId] = id.CamId
+	bMeta.KVPairs[ckCamId] = string(id.CamId)
 	bMeta.KVPairs[ckWidth] = strconv.FormatInt(int64(id.Width), 10)
 	bMeta.KVPairs[ckHeight] = strconv.FormatInt(int64(id.Height), 10)
 	return bMeta
