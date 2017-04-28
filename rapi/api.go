@@ -12,9 +12,10 @@ import (
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
-	"golang.org/x/net/context"
-	"gopkg.in/gin-gonic/gin.v1"
+	"golang.org/x/net/context"	
 	"gopkg.in/tylerb/graceful.v1"
+	"gopkg.in/gin-gonic/gin.v1"
+	"github.com/pixty/console/cors"	
 )
 
 type api struct {
@@ -31,6 +32,7 @@ func NewAPI() *api {
 	return new(api)
 }
 
+
 // =========================== PostConstructor ===============================
 func (a *api) DiPostConstruct() {
 	if !a.Config.DebugMode {
@@ -38,6 +40,8 @@ func (a *api) DiPostConstruct() {
 	}
 
 	a.ge = gin.New()
+	
+	a.ge.Use(cors.Default())	
 	a.logger = log4g.GetLogger("pixty.rest")
 	a.logger.Info("Constructing ReST API")
 
