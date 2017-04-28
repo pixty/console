@@ -174,6 +174,7 @@ func (ss *SceneService) saveImage(fpId string, resp *fpcp.Resp) {
 		Timestamp: common.Timestamp(img.Timestamp),
 	}
 
+	ss.logger.Debug()
 	ss.ImgService.New(id)
 }
 

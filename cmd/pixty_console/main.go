@@ -58,6 +58,10 @@ func initConsoleConfig() *common.ConsoleConfig {
 
 func initLoging(cc *common.ConsoleConfig) {
 	if cc.LogConfigFN != "" {
-		log4g.ConfigF(cc.LogConfigFN)
+		log4g.GetLogger("pixty").Info("Loading log4g configuartion from ", cc.LogConfigFN)
+		err := log4g.ConfigF(cc.LogConfigFN)
+		if err != nil {
+			panic(err)
+		}
 	}
 }

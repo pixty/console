@@ -2,6 +2,7 @@ package rapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/png"
 	"io"
@@ -12,10 +13,10 @@ import (
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
-	"golang.org/x/net/context"	
-	"gopkg.in/tylerb/graceful.v1"
+	"github.com/pixty/console/cors"
+	"golang.org/x/net/context"
 	"gopkg.in/gin-gonic/gin.v1"
-	"github.com/pixty/console/cors"	
+	"gopkg.in/tylerb/graceful.v1"
 )
 
 type api struct {
@@ -32,7 +33,6 @@ func NewAPI() *api {
 	return new(api)
 }
 
-
 // =========================== PostConstructor ===============================
 func (a *api) DiPostConstruct() {
 	if !a.Config.DebugMode {
@@ -40,8 +40,8 @@ func (a *api) DiPostConstruct() {
 	}
 
 	a.ge = gin.New()
-	
-	a.ge.Use(cors.Default())	
+
+	a.ge.Use(cors.Default())
 	a.logger = log4g.GetLogger("pixty.rest")
 	a.logger.Info("Constructing ReST API")
 
@@ -95,6 +95,9 @@ func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	if a.errorResponse(c, err) {
 		return
 	}
+
+	m, _ := json.Marshal(scene)
+	a.logger.Info("**** ", string(m))
 
 	c.JSON(http.StatusOK, scene)
 }
@@ -230,7 +233,7 @@ func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
 // 1234987239487.png	 - no region
 // 12341234_0_3_200_300.png - get the region(l:0, t:3, r:200, b:300) for 12341234.png
 func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
-	a.logger.Trace("GET /images/", imgName)
+	a.logger.Debug("GET /images/", imgName)
 
 	imgId, rect, err := parseImgName(imgName)
 	if err != nil {
@@ -251,6 +254,7 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 	rd := imgD.Reader.(io.ReadSeeker)
 
 	if rect != nil {
+		a.logger.Debug("Converting image ", imgId, " to ", *rect)
 		img, err := png.Decode(imgD.Reader)
 		if err != nil {
 			a.logger.Warn("Cannot decode png image err=", err)
@@ -270,6 +274,7 @@ func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 			return
 		}
 		rd = bytes.NewReader(bb.Bytes())
+		a.logger.Debug("Done with converting image ", imgId)
 	}
 
 	fn := imgName

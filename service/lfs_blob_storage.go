@@ -82,6 +82,8 @@ func (lbs *LfsBlobStorage) Shutdown() {
 
 // ============================= BlobStorage =================================
 func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, error) {
+	lbs.logger.Debug("Writing ", bMeta)
+	defer lbs.logger.Debug("Done with writing ", bMeta)
 	if r == nil {
 		lbs.logger.Error("reader (r) is nil ")
 		return common.ID_NULL, errors.New("reader cannot be nil")
