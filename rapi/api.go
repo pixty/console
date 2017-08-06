@@ -2,7 +2,6 @@ package rapi
 
 import (
 	"bytes"
-	"encoding/json"
 	"image"
 	"image/png"
 	"io"
@@ -95,9 +94,6 @@ func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	if a.errorResponse(c, err) {
 		return
 	}
-
-	m, _ := json.Marshal(scene)
-	a.logger.Info("**** ", string(m))
 
 	c.JSON(http.StatusOK, scene)
 }

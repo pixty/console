@@ -56,8 +56,8 @@ func (lbs *LfsBlobStorage) init() error {
 
 	lbs.objects = make(map[common.Id]*common.BlobMeta)
 
-	lbs.logger.Info("Initializing...")
 	path := lbs.storeDir
+	lbs.logger.Info("Initializing. Loading data from ", path)
 	if !common.DoesFileExist(path) {
 		lbs.logger.Info("Could not find directory ", path, " creating new one...")
 		err := os.MkdirAll(path, os.ModePerm)
@@ -244,7 +244,11 @@ func (lbs *LfsBlobStorage) readObjects() error {
 		return err
 	}
 
-	sl, _ := gorivets.NewSortedSliceByComp(compBlobMeta, len(lbs.objects))
+	sl, err := gorivets.NewSortedSliceByComp(compBlobMeta, gorivets.Max(len(lbs.objects), 1))
+	if err != nil {
+		lbs.logger.Error("Could not create new sorted slice, err=", err)
+		return err
+	}
 	for _, v := range lbs.objects {
 		sl.Add(v)
 	}

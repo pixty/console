@@ -4,6 +4,7 @@ import (
 	"github.com/jrivets/inject"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
+	"github.com/pixty/console/fpcp"
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/rapi"
 	"github.com/pixty/console/service"
@@ -44,6 +45,10 @@ func main() {
 	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.RegisterOne(scnService, "sceneService")
 	injector.Construct()
+
+	logger.Info("before")
+	go fpcp.RunFPCPServer(":50051", logger)
+	logger.Info("after")
 
 	restApi.Run()
 }
