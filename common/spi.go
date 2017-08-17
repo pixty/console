@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/pixty/fpcp"
 	"github.com/satori/go.uuid"
 )
 
@@ -17,6 +16,9 @@ type (
 
 	// Timestamp is a time in milliseconds
 	Timestamp int64
+
+	// A 128 dimensional vector of the face
+	V128D []float32
 
 	ISO8601Time time.Time
 
@@ -69,12 +71,6 @@ type (
 
 		// Deletes an object by its id. Returns error != nil if the object is not found
 		Delete(objId Id) error
-	}
-
-	SceneService interface {
-		// Returns Http Scene Processor implementation to wire up with gin
-		GetHttpSceneProcessor() *fpcp.HttpSceneProcessor
-		GetScenes(ctx CtxHolder, q *SceneQuery) ([]*Scene, error)
 	}
 
 	Error struct {

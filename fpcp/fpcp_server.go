@@ -91,7 +91,7 @@ func (s *server) OnScene(ctx context.Context, scn *Scene) (*Void, error) {
 		setError(ctx, mtErrVal_UnknonwSess)
 		return &Void{}, nil
 	}
-
+	s.log.Info("got OnScene() ", len(scn.Frame.Data))
 	return &Void{}, nil
 }
 
@@ -103,7 +103,7 @@ func RunFPCPServer(port string, logger gorivets.Logger) {
 		log.Fatal("Could not open TCP socket for listening on ", port)
 	}
 
-	srv := newFpcpServer(log, 1)
+	srv := newFpcpServer(log, 10000)
 	s := grpc.NewServer()
 	RegisterSceneProcessorServiceServer(s, srv)
 	// Register reflection service on gRPC server.

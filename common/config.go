@@ -27,6 +27,7 @@ type ConsoleConfig struct {
 	MongoDatabase   string
 	MongoUser       string
 	MongoPasswd     string
+	MongoDebugMode  bool
 
 	// Local File System Blob Storage
 	LbsDir     string
