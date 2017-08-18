@@ -2,7 +2,6 @@ package rapi
 
 import (
 	"github.com/pixty/console/common"
-	"github.com/pixty/fpcp"
 )
 
 type (
@@ -23,14 +22,6 @@ type (
 
 		// Key-Value pairs for the organization
 		Attributes map[string]string `json:"attributes"`
-
-		// An integer, which indicates the occuracy in percentage [0.01 .. 100]% with
-		// precision 0.01%, so the value 1 means 0.01%, value 934 means 9.34% and
-		// value 10000 means 100.00% etc.
-		//
-		// The field will be populated when then profile is attached to a person
-		// structure like a profile field or like a profile match
-		Occuracy int `json:"occuracy,omitempty"`
 	}
 
 	Person struct {
@@ -54,13 +45,13 @@ type (
 		Id        common.Id           `json:"id"`
 		CamId     *common.Id          `json:"camId,omitempty"`
 		Timestamp *common.ISO8601Time `json:"timestamp,omitempty"`
-		Size      *fpcp.RectSize      `json:"size,omitempty"`
+		Size      *common.Size        `json:"size,omitempty"`
 
 		// Identifies a rectangle on the picture. Can be populated when the
 		// object is used for describing a face (in Person object for instance)
-		Rect    *fpcp.Rect `json:"rect,omitempty"`
-		PicURL  string     `json:"picURL"`
-		FaceURL *string    `json:"url,omitempty"`
+		Rect    *common.Rectangle `json:"rect,omitempty"`
+		PicURL  string            `json:"picURL"`
+		FaceURL *string           `json:"url,omitempty"`
 	}
 
 	Scene struct {

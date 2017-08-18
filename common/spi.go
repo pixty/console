@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 
@@ -80,8 +81,9 @@ type (
 )
 
 const (
-	ID_NULL       = ""
-	ERR_NOT_FOUND = 1
+	ID_NULL                 = ""
+	TIMESTAMP_NA  Timestamp = 0
+	ERR_NOT_FOUND           = 1
 )
 
 func CheckError(e error, code int) bool {
@@ -152,4 +154,40 @@ func (t Timestamp) ToTime() time.Time {
 
 func (t Timestamp) ToISO8601Time() ISO8601Time {
 	return ISO8601Time(t.ToTime())
+}
+
+// The call is optimized for the 128 dimensional vectors with lenght 1
+func MatchAdvancedV128D(v1, v2 V128D, d float64) bool {
+	var sum float64 = 0.0
+	dd := d * d
+	for i := 0; i < 128; i++ {
+		v := float64(v1[i]) - float64(v2[i])
+		sum += v * v
+		if sum > dd {
+			return false
+		}
+	}
+	return math.Sqrt(sum) < d
+}
+
+func MatchAdvanced2V128D(v1, v2 V128D, dd float64) bool {
+	var sum float64 = 0.0
+	for i := 0; i < 128; i++ {
+		v := float64(v1[i]) - float64(v2[i])
+		sum += v * v
+		if sum > dd {
+			return false
+		}
+	}
+	return sum < dd
+}
+
+func MatchV128D(v1, v2 V128D, d float64) bool {
+	var sum float64 = 0.0
+	for i := 0; i < 128; i++ {
+		v := float64(v1[i]) - float64(v2[i])
+		sum += v * v
+	}
+	return math.Sqrt(sum) < d
+
 }

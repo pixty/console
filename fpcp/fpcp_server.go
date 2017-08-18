@@ -1,9 +1,12 @@
 package fpcp
 
 import (
+	"errors"
 	"net"
+	"strconv"
 
 	"github.com/jrivets/gorivets"
+	"github.com/jrivets/log4g"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -21,17 +24,51 @@ const (
 	mtErrVal_AuthFailed  = "2" //Unknown credentials
 )
 
-type server struct {
-	log      gorivets.Logger
-	sessions *gorivets.Lru
+type (
+	FPCPServer struct {
+		// The console configuration. Will be injected
+		Config   *common.ConsoleConfig `inject:""`
+		log      gorivets.Logger
+		sessions *gorivets.Lru
+		listener net.Listener
+		started  bool
+	}
+)
+
+func NewFPCPServer() *FPCPServer {
+	fs := new(FPCPServer)
+	fs.log = log4g.GetLogger("pixty.fpcp")
+	fs.started = false
+	return fs
 }
 
-func newFpcpServer(log gorivets.Logger, sessPoolSize int64) *server {
-	log.Info("Creating new server with sessPoolSize=", sessPoolSize)
-	s := new(server)
-	s.log = log
-	s.sessions = gorivets.NewLRU(sessPoolSize, s.onDropSession)
-	return s
+// =========================== MongoPersister ================================
+// ----------------------------- LifeCycler ----------------------------------
+func (fs *FPCPServer) DiPhase() int {
+	return common.CMP_PHASE_FPCP
+}
+
+func (fs *FPCPServer) DiInit() error {
+	fs.log.Info("Initializing.")
+	port := fs.Config.GrpcFPCPPort
+	fs.log.Info("Listening on ", port)
+
+	lis, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		msg := "Could not open gRPC TCP socket for listening on " + strconv.Itoa(port)
+		fs.log.Fatal(msg)
+		return errors.New(msg)
+	}
+
+	fs.sessions = gorivets.NewLRU(int64(fs.Config.GrpcFPCPSessCapacity), fs.onDropSession)
+	fs.listener = lis
+	fs.run()
+	return nil
+}
+
+func (fs *FPCPServer) DiShutdown() {
+	fs.log.Info("Shutting down.")
+	fs.close()
 }
 
 func getFirstValue(md metadata.MD, key string) string {
@@ -42,42 +79,64 @@ func getFirstValue(md metadata.MD, key string) string {
 	return vals[0]
 }
 
+func (fs *FPCPServer) run() {
+	fs.log.Info("run() called")
+	fs.started = true
+	gs := grpc.NewServer()
+	RegisterSceneProcessorServiceServer(gs, fs)
+	// Register reflection service on gRPC server.
+	reflection.Register(gs)
+	go func() {
+		fs.log.Info("Starting go routine by listening gRPC FPCP connections")
+		if err := gs.Serve(fs.listener); err != nil && fs.started {
+			fs.log.Fatal("failed to serve: err=", err)
+		}
+		fs.log.Info("Finishing go routine by listening gRPC FPCP connections")
+	}()
+}
+
+func (fs *FPCPServer) close() {
+	fs.started = false
+	fs.listener.Close()
+}
+
+func (fs *FPCPServer) onDropSession(sid, ak interface{}) {
+	fs.log.Info("Dropping session_id=", sid, " for access_key=", ak)
+}
+
+func (fs *FPCPServer) checkSession(ctx context.Context) bool {
+	md, ok := metadata.FromContext(ctx)
+	if ok {
+		sess := getFirstValue(md, mtKeySessionId)
+		ak, ok := fs.sessions.Get(sess)
+		if ok {
+			fs.log.Debug("Session check is ok for session_id=", sess, ", access_key=", ak)
+			return true
+		}
+		fs.log.Warn("Unknown connection for session_id=", sess)
+	} else {
+		fs.log.Warn("Got a gRPC call expecting session id, but it is not provided")
+	}
+	return false
+}
+
 func setError(ctx context.Context, err string) {
 	trailer := metadata.Pairs(mtKeyError, err)
 	grpc.SetTrailer(ctx, trailer)
 }
 
-func (s *server) onDropSession(sid, ak interface{}) {
-	s.log.Info("Dropping session_id=", sid, " for access_key=", ak)
-}
-
-func (s *server) checkSession(ctx context.Context) bool {
-	md, ok := metadata.FromContext(ctx)
-	if ok {
-		sess := getFirstValue(md, mtKeySessionId)
-		ak, ok := s.sessions.Get(sess)
-		if ok {
-			s.log.Debug("Session check is ok for session_id=", sess, ", access_key=", ak)
-			return true
-		}
-		s.log.Warn("Unknown connection for session_id=", sess)
-	} else {
-		s.log.Warn("Got a gRPC call expecting session id, but it is not provided")
-	}
-	return false
-}
-
-func (s *server) Authenticate(ctx context.Context, authToken *AuthToken) (*Void, error) {
-	s.log.Info("Got authentication request for access_key=", authToken.Access)
+// -------------------------------- FPCP -------------------------------------
+func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *AuthToken) (*Void, error) {
+	fs.log.Info("Got authentication request for access_key=", authToken.Access)
 	if len(authToken.Access) == 0 || len(authToken.Secret) == 0 {
-		s.log.Warn("Empty credentials in authentication!")
+		fs.log.Warn("Empty credentials in authentication!")
 		setError(ctx, mtErrVal_AuthFailed)
 		return &Void{}, nil
 	}
 
 	sid := common.NewUUID()
-	s.sessions.Add(sid, authToken.Access, 1)
-	s.log.Info("Assigning session_id=", sid, " for access_key=", authToken.Access)
+	fs.sessions.Add(sid, authToken.Access, 1)
+	fs.log.Info("Assigning session_id=", sid, " for access_key=", authToken.Access)
 
 	trailer := metadata.Pairs(mtKeySessionId, sid)
 	grpc.SetTrailer(ctx, trailer)
@@ -85,30 +144,12 @@ func (s *server) Authenticate(ctx context.Context, authToken *AuthToken) (*Void,
 	return &Void{}, nil
 }
 
-func (s *server) OnScene(ctx context.Context, scn *Scene) (*Void, error) {
-	if !s.checkSession(ctx) {
-		s.log.Warn("Unauthorized call to OnScene()")
+func (fs *FPCPServer) OnScene(ctx context.Context, scn *Scene) (*Void, error) {
+	if !fs.checkSession(ctx) {
+		fs.log.Warn("Unauthorized call to OnScene()")
 		setError(ctx, mtErrVal_UnknonwSess)
 		return &Void{}, nil
 	}
-	s.log.Info("got OnScene() ", len(scn.Frame.Data))
+	fs.log.Info("got OnScene() ", len(scn.Frame.Data))
 	return &Void{}, nil
-}
-
-func RunFPCPServer(port string, logger gorivets.Logger) {
-	log := logger.WithName("pixty.fpcp_server").(gorivets.Logger)
-	log.Info("Listening on ", port)
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		log.Fatal("Could not open TCP socket for listening on ", port)
-	}
-
-	srv := newFpcpServer(log, 10000)
-	s := grpc.NewServer()
-	RegisterSceneProcessorServiceServer(s, srv)
-	// Register reflection service on gRPC server.
-	reflection.Register(s)
-	if err := s.Serve(lis); err != nil {
-		log.Fatal("failed to serve: err=", err)
-	}
 }

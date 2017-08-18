@@ -9,6 +9,7 @@ const (
 	CMP_PHASE_BLOB_STORE    = 0
 	CMP_PHASE_DB            = 1
 	CMP_PHASE_SCENE_SERVICE = 2
+	CMP_PHASE_FPCP          = 3
 )
 
 type ConsoleConfig struct {
@@ -16,7 +17,13 @@ type ConsoleConfig struct {
 	LogConfigFN string
 
 	// router http port
-	HttpPort int
+	HttpPort      int
+	HttpDebugMode bool
+
+	// grpc (FPCP) config
+	GrpcFPCPPort int
+	// how many sessions (connection) can be kept in the FPCP at a time
+	GrpcFPCPSessCapacity int
 
 	// Debug mode
 	DebugMode bool
@@ -41,6 +48,8 @@ type ConsoleConfig struct {
 func NewConsoleConfig() *ConsoleConfig {
 	cc := &ConsoleConfig{}
 	cc.HttpPort = 8080
+	cc.GrpcFPCPPort = 50051
+	cc.GrpcFPCPSessCapacity = 10000
 	cc.MongoAddress = "127.0.0.1:27017"
 	cc.MongoTimeoutSec = 60
 	cc.MongoDatabase = "pixty"
@@ -56,6 +65,7 @@ func (cc *ConsoleConfig) ParseCLArgs() bool {
 
 	flag.StringVar(&cc.LogConfigFN, "log-config", "", "The log4g configuration file name")
 	flag.IntVar(&cc.HttpPort, "port", cc.HttpPort, "The http port the console will listen on")
+	flag.IntVar(&cc.GrpcFPCPPort, "fpcp-port", cc.GrpcFPCPPort, "The gRPC port for serving FPCP from cameras")
 	flag.BoolVar(&help, "help", false, "Prints the usage")
 	flag.BoolVar(&cc.DebugMode, "debug", false, "Run in debug mode")
 

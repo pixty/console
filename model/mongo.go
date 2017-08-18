@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"math"
 	"reflect"
 	"strings"
@@ -249,6 +250,41 @@ func (pp *part_persister) GetPersonFacesDAO() common.CrudExecutor {
 
 func (pp *part_persister) GetProfileMetasDAO() common.CrudExecutor {
 	return pp.mds.new_crud(cColProfileMetas, reflect.TypeOf(&common.ProfileMeta{}), pp.logger)
+}
+
+func (pp *part_persister) SearchPersons(query *common.PersonsQuery) ([]*common.Person, error) {
+	pp.logger.Debug("SearchPersons(): looking for persons query = ", query)
+	colPersons := pp.mds.collection(cColPerson)
+
+	var mq *mgo.Query
+	if query.PersonIds != nil && len(query.PersonIds) > 0 {
+		q := bson.M{"_id": bson.M{"$in": query.PersonIds}}
+		mq = colPersons.Find(q)
+	} else if (query.CamId != common.ID_NULL || query.MaxLastSeenAt != common.TIMESTAMP_NA) && query.Limit > 0 {
+		cond := []bson.M{}
+		if query.CamId != common.ID_NULL {
+			cond = append(cond, bson.M{"camId": query.CamId})
+		}
+		if query.MaxLastSeenAt != common.TIMESTAMP_NA {
+			cond = append(cond, bson.M{"lastSeenAt": bson.M{"$lte": query.MaxLastSeenAt}})
+		}
+
+		q := cond[0]
+		if len(cond) > 1 {
+			q = bson.M{"$and": cond}
+		}
+
+		mq = colPersons.Find(q).Sort("-lastSeenAt").Limit(normLimit(query.Limit))
+	} else {
+		pp.logger.Warn("SearchPersons(): bad query = ", query)
+		return nil, errors.New("list of person Ids or camera/limits should be specified")
+	}
+
+	var res []*common.Person
+	it := mq.Iter()
+	err := it.All(&res)
+	it.Close()
+	return res, err
 }
 
 func (pp *part_persister) Close() {

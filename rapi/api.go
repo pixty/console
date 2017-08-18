@@ -34,7 +34,7 @@ func NewAPI() *api {
 
 // =========================== PostConstructor ===============================
 func (a *api) DiPostConstruct() {
-	if !a.Config.DebugMode {
+	if !a.Config.HttpDebugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 

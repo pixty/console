@@ -37,18 +37,15 @@ func main() {
 	imgService := service.NewDefaultImageService()
 	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.LbsMaxSize)
 	scnService := service.NewSceneService()
+	fpcp := fpcp.NewFPCPServer()
 
-	injector.RegisterMany(cc, restApi)
+	injector.RegisterMany(cc, restApi, fpcp)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(mongo, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.RegisterOne(scnService, "sceneService")
 	injector.Construct()
-
-	logger.Info("before")
-	go fpcp.RunFPCPServer(":50051", logger)
-	logger.Info("after")
 
 	restApi.Run()
 }
