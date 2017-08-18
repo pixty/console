@@ -36,6 +36,10 @@ type ConsoleConfig struct {
 	MongoPasswd     string
 	MongoDebugMode  bool
 
+	// Please refer to https://github.com/go-sql-driver/mysql about DSN
+	// example: "id:password@tcp(your-amazonaws-uri.com:3306)/dbname" etc.
+	MysqlDatasource string
+
 	// Local File System Blob Storage
 	LbsDir     string
 	LbsMaxSize int64
@@ -53,6 +57,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.MongoAddress = "127.0.0.1:27017"
 	cc.MongoTimeoutSec = 60
 	cc.MongoDatabase = "pixty"
+	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
 	cc.LbsMaxSize = 1000000000 // 1gig
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"

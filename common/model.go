@@ -5,8 +5,6 @@ import (
 )
 
 type (
-	// Version, could be used by DB's supported CAS ops (like mongo)
-	Version int64
 
 	// Organization DO.
 	Organization struct {
