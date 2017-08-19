@@ -33,18 +33,16 @@ func main() {
 	defer cancel()
 
 	restApi := rapi.NewAPI()
-	mongo := model.NewMongoPersister()
+	msqlPersist := model.NewMysqlPersister()
 	imgService := service.NewDefaultImageService()
 	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.LbsMaxSize)
-	scnService := service.NewSceneService()
 	fpcp := fpcp.NewFPCPServer()
 
 	injector.RegisterMany(cc, restApi, fpcp)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
-	injector.RegisterOne(mongo, "persister")
+	injector.RegisterOne(msqlPersist, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
-	injector.RegisterOne(scnService, "sceneService")
 	injector.Construct()
 
 	restApi.Run()

@@ -2,6 +2,7 @@ package rapi
 
 import (
 	"github.com/pixty/console/common"
+	"github.com/pixty/console/model"
 )
 
 type (
@@ -45,13 +46,13 @@ type (
 		Id        common.Id           `json:"id"`
 		CamId     *common.Id          `json:"camId,omitempty"`
 		Timestamp *common.ISO8601Time `json:"timestamp,omitempty"`
-		Size      *common.Size        `json:"size,omitempty"`
+		Size      *model.Size         `json:"size,omitempty"`
 
 		// Identifies a rectangle on the picture. Can be populated when the
 		// object is used for describing a face (in Person object for instance)
-		Rect    *common.Rectangle `json:"rect,omitempty"`
-		PicURL  string            `json:"picURL"`
-		FaceURL *string           `json:"url,omitempty"`
+		Rect    *model.Rectangle `json:"rect,omitempty"`
+		PicURL  string           `json:"picURL"`
+		FaceURL *string          `json:"url,omitempty"`
 	}
 
 	Scene struct {

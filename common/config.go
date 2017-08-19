@@ -28,14 +28,6 @@ type ConsoleConfig struct {
 	// Debug mode
 	DebugMode bool
 
-	// Persistence settings
-	MongoAddress    string
-	MongoTimeoutSec int
-	MongoDatabase   string
-	MongoUser       string
-	MongoPasswd     string
-	MongoDebugMode  bool
-
 	// Please refer to https://github.com/go-sql-driver/mysql about DSN
 	// example: "id:password@tcp(your-amazonaws-uri.com:3306)/dbname" etc.
 	MysqlDatasource string
@@ -54,9 +46,6 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.HttpPort = 8080
 	cc.GrpcFPCPPort = 50051
 	cc.GrpcFPCPSessCapacity = 10000
-	cc.MongoAddress = "127.0.0.1:27017"
-	cc.MongoTimeoutSec = 60
-	cc.MongoDatabase = "pixty"
 	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
 	cc.LbsMaxSize = 1000000000 // 1gig

@@ -101,6 +101,7 @@ type (
 
 	// An transactional persister (has context dependant time)
 	MainPersister interface {
+		FindCameraByAccessKey(ak string) (*Camera, error)
 	}
 
 	// Partitioned persister

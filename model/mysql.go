@@ -27,11 +27,13 @@ type (
 	}
 
 	msql_main_persister struct {
-		dbc *msql_connection
+		logger log4g.Logger
+		dbc    *msql_connection
 	}
 
 	msql_part_persister struct {
-		dbc *msql_connection
+		logger log4g.Logger
+		dbc    *msql_connection
 	}
 )
 
@@ -50,7 +52,7 @@ func (mp *MysqlPersister) DiPhase() int {
 func (mp *MysqlPersister) DiInit() error {
 	mp.logger.Info("Initializing.")
 	mc := mp.newConnection(mp.Config.MysqlDatasource, log4g.GetLogger("pixty.mysql.main"))
-	mp.mainPers = &msql_main_persister{mc}
+	mp.mainPers = &msql_main_persister{mc.logger, mc}
 	return nil
 }
 
@@ -83,49 +85,12 @@ func (mp *MysqlPersister) newConnection(ds string, logger log4g.Logger) *msql_co
 	mp.logger.Info("new connection to ", conName)
 	mc := new(msql_connection)
 	mc.conName = conName
+	mc.ds = ds
 	mc.logger = logger
-	mc.reConnect()
 	return mc
 }
 
 // =========================== msql_connection ===============================
-func (mc *msql_connection) connect() {
-	mc.logger.Info("Connecting to ", mc.conName)
-
-	db, err := sql.Open("mysql", mc.ds)
-	if err != nil {
-		mc.logger.Error("Could not open connection, err=", err)
-		return
-	}
-
-	err = db.Ping()
-	if err != nil {
-		mc.logger.Error("Could not ping server, err=", err)
-		return
-	}
-
-	mc.db = db
-	mc.logger.Info("Ping ok for ", mc.conName)
-	return
-}
-
-func (mc *msql_connection) reConnect() {
-	mc.lock.Lock()
-	defer mc.lock.Unlock()
-
-	if mc.db != nil {
-		err := mc.db.Ping()
-		if err == nil {
-			mc.logger.Debug("reConnect is fine")
-			return
-		}
-		mc.logger.Warn("Cannot ping DB connection err=", err)
-		mc.db.Close()
-		mc.db = nil
-	}
-	mc.connect()
-}
-
 func (mc *msql_connection) close() {
 	mc.lock.Lock()
 	defer mc.lock.Unlock()
@@ -134,4 +99,48 @@ func (mc *msql_connection) close() {
 		mc.db.Close()
 		mc.db = nil
 	}
+}
+
+func (mc *msql_connection) getDb() (*sql.DB, error) {
+	db := mc.db
+	if db == nil {
+		mc.lock.Lock()
+		defer mc.lock.Unlock()
+
+		if mc.db != nil {
+			return mc.db, nil
+		}
+		mc.logger.Info("Connecting to ", mc.conName, " ", mc.ds)
+
+		var err error
+		db, err = sql.Open("mysql", mc.ds)
+		if err != nil {
+			mc.logger.Error("Could not open connection, err=", err)
+			return nil, err
+		}
+		mc.db = db
+	}
+	return db, nil
+}
+
+// ========================= msql_main_persister =============================
+func (mmp *msql_main_persister) FindCameraByAccessKey(ak string) (*Camera, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query("SELECT id, org_id, secret_key FROM camera WHERE access_key=?", ak)
+	if err != nil {
+		mmp.logger.Warn("Could read camera by access_key=", ak, ", err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		cam := new(Camera)
+		rows.Scan(&cam.Id, &cam.OrgId, &cam.SecretKey)
+		return cam, nil
+	}
+	return nil, nil
 }

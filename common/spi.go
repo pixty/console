@@ -23,15 +23,6 @@ type (
 
 	ISO8601Time time.Time
 
-	OrgService interface {
-		GetById(OrgId Id) *Organization
-	}
-
-	CameraService interface {
-		GetById(CamId Id) *Camera
-		GetByOrgId(OrgId Id) []*Camera
-	}
-
 	ImageDescriptor struct {
 		Id        Id
 		Reader    io.Reader
