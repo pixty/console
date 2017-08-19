@@ -31,7 +31,7 @@ type (
 	FPCPServer struct {
 		// The console configuration. Will be injected
 		Config    *common.ConsoleConfig `inject:""`
-		persister model.Persister       `inject:"persister"`
+		Persister model.Persister       `inject:"persister"`
 		log       gorivets.Logger
 		sessions  *gorivets.Lru
 		ak2sess   map[string]string // access keys to sess
@@ -137,7 +137,7 @@ func (fs *FPCPServer) checkSession(ctx context.Context) bool {
 }
 
 func (fs *FPCPServer) authenticate(authToken *AuthToken) (string, error) {
-	cam, err := fs.persister.GetMainPersister().FindCameraByAccessKey(authToken.Access)
+	cam, err := fs.Persister.GetMainPersister().FindCameraByAccessKey(authToken.Access)
 	if err != nil {
 		return "", err
 	}

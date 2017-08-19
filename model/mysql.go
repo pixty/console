@@ -110,7 +110,7 @@ func (mc *msql_connection) getDb() (*sql.DB, error) {
 		if mc.db != nil {
 			return mc.db, nil
 		}
-		mc.logger.Info("Connecting to ", mc.conName, " ", mc.ds)
+		mc.logger.Info("Connecting to ", mc.conName)
 
 		var err error
 		db, err = sql.Open("mysql", mc.ds)
@@ -139,7 +139,11 @@ func (mmp *msql_main_persister) FindCameraByAccessKey(ak string) (*Camera, error
 
 	if rows.Next() {
 		cam := new(Camera)
-		rows.Scan(&cam.Id, &cam.OrgId, &cam.SecretKey)
+		err := rows.Scan(&cam.Id, &cam.OrgId, &cam.SecretKey)
+		cam.AcceessKey = ak
+		if err != nil {
+			mmp.logger.Warn("FindCameraByAccessKey() could not scan result err=", err)
+		}
 		return cam, nil
 	}
 	return nil, nil
