@@ -1,7 +1,6 @@
 package common
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/jrivets/log4g"
@@ -9,15 +8,15 @@ import (
 
 func TestPerformance(t *testing.T) {
 	log := log4g.GetLogger("pt")
-	count := 100000
+	count := 10000
 	log.Info("Making ", count, " vectors...")
 	vects := make([]V128D, count, count)
 	for i := 0; i < count; i++ {
-		vects[i] = newV128D()
+		vects[i] = newTestV128D()
 	}
 	log.Info("Done...")
 
-	v := newV128D()
+	v := newTestV128D()
 	edge := 3.734
 	cnt := 10
 	log.Info("doing match MatchAdvancedV128D() over... ", count*cnt, " comparisons")
@@ -57,10 +56,21 @@ func TestPerformance(t *testing.T) {
 	log.Info("completed in ", CurrentTimestamp()-start, "ms, matches=", matches)
 }
 
-func newV128D() V128D {
-	var res V128D = make([]float32, 128, 128)
-	for i := 0; i < 128; i++ {
-		res[i] = rand.Float32()
+func TestV128Conv(t *testing.T) {
+	v := newTestV128D()
+	b := v.ToByteSlice()
+	v2 := NewV128D()
+	v2.Assign(b)
+	if !v.Equals(v2) {
+		t.Fatal("v1 should be equal to v2")
 	}
-	return res
+	v2[2] = -v2[2]
+	if v.Equals(v2) {
+		t.Fatal("v1 should NOT be equal to v2")
+	}
+}
+
+func newTestV128D() V128D {
+	res := NewV128D()
+	return res.FillRandom()
 }

@@ -1,4 +1,4 @@
-package fpcp
+package fpcp_serv
 
 import (
 	"errors"
@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/pixty/console/common"
+	"github.com/pixty/console/common/fpcp"
 	"github.com/pixty/console/model"
 )
 
@@ -90,7 +91,7 @@ func (fs *FPCPServer) run() {
 	fs.log.Info("run() called")
 	fs.started = true
 	gs := grpc.NewServer()
-	RegisterSceneProcessorServiceServer(gs, fs)
+	fpcp.RegisterSceneProcessorServiceServer(gs, fs)
 	// Register reflection service on gRPC server.
 	reflection.Register(gs)
 	go func() {
@@ -136,8 +137,8 @@ func (fs *FPCPServer) checkSession(ctx context.Context) bool {
 	return false
 }
 
-func (fs *FPCPServer) authenticate(authToken *AuthToken) (string, error) {
-	cam, err := fs.Persister.GetMainPersister().FindCameraByAccessKey(authToken.Access)
+func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
+	cam, err := fs.Persister.GetMainPersister().FindCameraById(authToken.Access)
 	if err != nil {
 		return "", err
 	}
@@ -167,40 +168,40 @@ func setError(ctx context.Context, err string) {
 }
 
 // -------------------------------- FPCP -------------------------------------
-func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *AuthToken) (*Void, error) {
+func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *fpcp.AuthToken) (*fpcp.Void, error) {
 	fs.log.Info("Got authentication request for access_key=", authToken.Access)
 	if len(authToken.Access) == 0 || len(authToken.Secret) == 0 {
 		fs.log.Warn("Empty credentials in authentication!")
 		setError(ctx, mtErrVal_AuthFailed)
-		return &Void{}, nil
+		return &fpcp.Void{}, nil
 	}
 
 	sid, err := fs.authenticate(authToken)
 	if err != nil {
 		fs.log.Warn("Unable authenticate. err=", err)
 		setError(ctx, mtErrVal_UnableNow)
-		return &Void{}, nil
+		return &fpcp.Void{}, nil
 	}
 
 	if sid == "" {
 		fs.log.Info("Invalid credentials for access_key=", authToken.Access)
 		setError(ctx, mtErrVal_AuthFailed)
-		return &Void{}, nil
+		return &fpcp.Void{}, nil
 	}
 
 	fs.log.Info("Assigning session_id=", sid, " for access_key=", authToken.Access)
 	trailer := metadata.Pairs(mtKeySessionId, sid)
 	grpc.SetTrailer(ctx, trailer)
 	grpc.SetHeader(ctx, trailer)
-	return &Void{}, nil
+	return &fpcp.Void{}, nil
 }
 
-func (fs *FPCPServer) OnScene(ctx context.Context, scn *Scene) (*Void, error) {
+func (fs *FPCPServer) OnScene(ctx context.Context, scn *fpcp.Scene) (*fpcp.Void, error) {
 	if !fs.checkSession(ctx) {
 		fs.log.Warn("Unauthorized call to OnScene()")
 		setError(ctx, mtErrVal_UnknonwSess)
-		return &Void{}, nil
+		return &fpcp.Void{}, nil
 	}
 	fs.log.Info("got OnScene() ", len(scn.Frame.Data))
-	return &Void{}, nil
+	return &fpcp.Void{}, nil
 }

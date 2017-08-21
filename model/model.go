@@ -32,10 +32,9 @@ type (
 
 	// Camera DO
 	Camera struct {
-		Id         string // friendly camera name
-		OrgId      int64
-		AcceessKey string
-		SecretKey  string
+		Id        string // friendly camera name
+		OrgId     int64
+		SecretKey string
 	}
 
 	// A person DO
@@ -70,19 +69,20 @@ type (
 	// A face description DO
 	Face struct {
 		Id          int64
+		SceneId     string
 		PersonId    string
 		CapturedAt  int64
 		ImageId     string
-		Rect        Rectangle
+		Rect        Rectangle //composite, dao has transformations
 		FaceImageId int64
-		V128D       common.V128D
+		V128D       common.V128D //composite, dao has transformations
 	}
 
 	// An organization profile's information
 	Profile struct {
 		ProfileId int64
 		OrgId     int64
-		PictureId stirng // avatar
+		PictureId string // avatar
 	}
 
 	ProfileMeta struct {
@@ -94,25 +94,37 @@ type (
 	// Persister is an interface which provides an access to persistent layer
 	Persister interface {
 		GetMainPersister() MainPersister
-		GetPartPersister(partId Id) PartPersister
+		GetPartPersister(partId common.Id) PartPersister
 	}
 
 	// An transactional persister (has context dependant time)
 	MainPersister interface {
-		FindCameraByAccessKey(ak string) (*Camera, error)
+		FindCameraById(camId string) (*Camera, error)
 	}
 
 	// Partitioned persister
 	PartPersister interface {
+		// ==== Faces ====
+		// returns Face by its Id, or error
+		GetFaceById(pId int64) (*Face, error)
+		// insert new face, returns the new record id, or error, if it happens
+		InsertFace(face *Face) (int64, error)
+
+		// ==== Persons ====
+		// returns Person by its Id, or error
+		GetPersonById(pId string) (*Person, error)
+		// insert new person, returns the new record id, or error, if it happens
+		InsertPerson(person *Person) (int64, error)
+		UpdatePerson(person *Person) error
 	}
 
 	PersonsQuery struct {
 		// Camera Id the request done for
-		CamId Id
+		CamId string
 		// The maximum allowable max time.
 		MaxLastSeenAt common.Timestamp
 		// Request only this persons (MaxLastSeenAt and Limit will be disregarded)
-		PersonIds []Id
+		PersonIds []string
 		// How many to select
 		Limit int
 	}
@@ -124,7 +136,7 @@ const (
 )
 
 func (c *Camera) String() string {
-	return fmt.Sprintf("{Id=%s, OrgId=%d, AccessKey=%s, SecretKey=%s}", c.Id, c.OrgId, c.AcceessKey, c.SecretKey)
+	return fmt.Sprintf("{Id=%s, OrgId=%d, SecretKey=%s}", c.Id, c.OrgId, c.SecretKey)
 }
 
 func (q *PersonsQuery) String() string {

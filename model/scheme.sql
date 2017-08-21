@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS `user` (
 CREATE TABLE IF NOT EXISTS `camera` (
 	`id`                    VARCHAR(255) NOT NULL,
 	`org_id`                BIGINT(20) NOT NULL,
-	`access_key`            VARCHAR(50),
 	`secret_key`            VARCHAR(50),
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
@@ -64,15 +63,16 @@ CREATE TABLE IF NOT EXISTS `person` (
 
 CREATE TABLE IF NOT EXISTS `face` (
 	`id`                    BIGINT(20)      NOT NULL AUTO_INCREMENT,
+	`scene_id`              VARCHAR(255)    NOT NULL,
 	`person_id`             VARCHAR(255)    NOT NULL,
 	`captured_at`           BIGINT(20)      NOT NULL,
 	`image_id`              VARCHAR(255)    NOT NULL,
-	`img_left`				 INT,
-	`img_top`				 INT,
-	`img_right`				 INT,
-	`img_bottom`			 INT,
+	`img_left`              INT,
+	`img_top`               INT,
+	`img_right`             INT,
+	`img_bottom`            INT,
 	`face_image_id`         VARCHAR(255)    NOT NULL,
-	`v128d`					 BLOB,
+	`v128d`	                BLOB,
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `person_id_idx` USING BTREE (person_id),
@@ -115,4 +115,4 @@ CREATE TABLE IF NOT EXISTS `profile_meta` (
 
 #After creation for test camera
 #insert into organization(id, name) values(1, 'pixty');
-#insert into camera(id, org_id, access_key, secret_key) values("pixtyTestCam", 1, "1234", "1234");
+#insert into camera(id, org_id, secret_key) values("pixtyTestCam", 1, "1234");
