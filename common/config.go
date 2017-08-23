@@ -1,6 +1,12 @@
 package common
 
-import "flag"
+import (
+	"flag"
+	"math"
+
+	"github.com/jrivets/gorivets"
+	"github.com/jrivets/log4g"
+)
 
 const (
 	CnConsoleConfig = "ConsoleConfig"
@@ -34,10 +40,12 @@ type ConsoleConfig struct {
 
 	// Local File System Blob Storage
 	LbsDir     string
-	LbsMaxSize int64
+	lbsMaxSize string
 
 	// HTTP images endpoint prefix
 	ImgsPrefix string
+
+	logger log4g.Logger
 }
 
 // Set up default config values
@@ -48,8 +56,9 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.GrpcFPCPSessCapacity = 10000
 	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
-	cc.LbsMaxSize = 1000000000 // 1gig
+	cc.lbsMaxSize = "10G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
+	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }
 
@@ -71,4 +80,14 @@ func (cc *ConsoleConfig) ParseCLArgs() bool {
 	}
 
 	return true
+}
+
+func (cc *ConsoleConfig) GetLbsMaxSize() int64 {
+	res, err := gorivets.ParseInt64(cc.lbsMaxSize, 1000000, math.MaxInt64, 1000000000)
+	if err != nil {
+		cc.logger.Fatal("Could not parse LBS size=", cc.lbsMaxSize, " panicing!")
+		panic(err)
+	}
+	cc.logger.Info("Max LBS Size is ", cc.lbsMaxSize, "(", res, " bytes)")
+	return res
 }

@@ -34,7 +34,7 @@ type (
 		Config    *common.ConsoleConfig `inject:""`
 		Persister model.Persister       `inject:"persister"`
 		log       gorivets.Logger
-		sessions  *gorivets.Lru
+		sessions  gorivets.LRU
 		ak2sess   map[string]string // access keys to sess
 		listener  net.Listener
 		started   bool

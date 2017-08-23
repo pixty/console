@@ -4,10 +4,10 @@ import (
 	"github.com/jrivets/inject"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
-	"github.com/pixty/console/fpcp"
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/rapi"
 	"github.com/pixty/console/service"
+	"github.com/pixty/console/service/fpcp_serv"
 	"golang.org/x/net/context"
 )
 
@@ -35,8 +35,8 @@ func main() {
 	restApi := rapi.NewAPI()
 	msqlPersist := model.NewMysqlPersister()
 	imgService := service.NewDefaultImageService()
-	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.LbsMaxSize)
-	fpcp := fpcp.NewFPCPServer()
+	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSize())
+	fpcp := fpcp_serv.NewFPCPServer()
 
 	injector.RegisterMany(cc, restApi, fpcp)
 	injector.RegisterOne(imgService, "imgService")

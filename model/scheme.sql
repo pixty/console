@@ -1,8 +1,8 @@
-CREATE DATABASE IF NOT EXISTS `pixty`
+CREATE DATABASE IF NOT EXISTS `pixty_test`
 	DEFAULT CHARACTER SET utf8
 	DEFAULT COLLATE utf8_bin;
 
-USE pixty;
+USE pixty_test;
 
 #DROP TABLE IF EXISTS `organization`;
 #DROP TABLE IF EXISTS `field_info`;
@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS `camera` (
 	`secret_key`            VARCHAR(50),
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `org_id_idx` USING BTREE (org_id),
-	UNIQUE `access_key_idx` USING BTREE (access_key)
+	INDEX `org_id_idx` USING BTREE (org_id)
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `person` (

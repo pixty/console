@@ -51,6 +51,14 @@ func (imgS *DefaultImageService) Read(imgId common.Id, noData bool) *common.Imag
 	return res
 }
 
+func (imgS *DefaultImageService) DeleteAllWithPrefix(prefix common.Id) int {
+	return imgS.BlobStorage.DeleteAllWithPrefix(prefix)
+}
+
+func (imgS *DefaultImageService) Delete(imgId common.Id) error {
+	return imgS.BlobStorage.Delete(imgId)
+}
+
 func toBlobMeta(id *common.ImageDescriptor) *common.BlobMeta {
 	bMeta := common.NewBlobMeta()
 	bMeta.Id = id.Id

@@ -45,6 +45,13 @@ type (
 		// only image metadata is filled, but no data reader is returned.
 		// Returns nil if the image is not found
 		Read(imgId Id, noData bool) *ImageDescriptor
+
+		// Deletes an image by its id. Returns error != nil if operation is failed,
+		// returns nil, if the object is not found (succeeded)
+		Delete(imgId Id) error
+
+		// Delete all pictures that starts from prefix
+		DeleteAllWithPrefix(prefix Id) int
 	}
 
 	BlobMeta struct {
@@ -65,8 +72,11 @@ type (
 		// Reads meta data for the object. Returns nil if not found.
 		ReadMeta(objId Id) *BlobMeta
 
-		// Deletes an object by its id. Returns error != nil if the object is not found
+		// Deletes an object by its id. Returns error != nil if operation is failed
 		Delete(objId Id) error
+
+		// Deletes all ids with prefix
+		DeleteAllWithPrefix(prefix Id) int
 	}
 
 	SceneService interface {
@@ -90,6 +100,21 @@ const (
 	V128D_SIZE = 512 // 128 values by 4 bytes each
 )
 
+// ================================= Misc ====================================
+func NewUUID() string {
+	return uuid.NewV4().String()
+}
+
+func NewId() Id {
+	return Id(uuid.NewV4().String())
+}
+
+func DoesFileExist(fileName string) bool {
+	_, err := os.Stat(fileName)
+	return !os.IsNotExist(err)
+}
+
+// ================================ Error ====================================
 func CheckError(e error, code int) bool {
 	if e == nil {
 		return false
@@ -113,12 +138,7 @@ func (e *Error) Error() string {
 	return ""
 }
 
-func (t ISO8601Time) MarshalJSON() ([]byte, error) {
-	tm := time.Time(t)
-	stamp := fmt.Sprintf("\"%s\"", tm.Format("2006-01-02T15:04:05-0700"))
-	return []byte(stamp), nil
-}
-
+// ============================== BlobMeta ===================================
 func NewBlobMeta() *BlobMeta {
 	return &BlobMeta{ID_NULL, make(map[string]interface{}), CurrentTimestamp(), 0}
 }
@@ -127,25 +147,19 @@ func (bm *BlobMeta) String() string {
 	return fmt.Sprintf("{KVPairs: %v}", bm.KVPairs)
 }
 
-func NewUUID() string {
-	return uuid.NewV4().String()
-}
-
-func NewId() Id {
-	return Id(uuid.NewV4().String())
-}
-
-func DoesFileExist(fileName string) bool {
-	_, err := os.Stat(fileName)
-	return !os.IsNotExist(err)
-}
-
+// ============================== Timestamp ==================================
 func CurrentTimestamp() Timestamp {
 	return ToTimestamp(time.Now())
 }
 
 func CurrentISO8601Time() ISO8601Time {
 	return ISO8601Time(time.Now())
+}
+
+func (t ISO8601Time) MarshalJSON() ([]byte, error) {
+	tm := time.Time(t)
+	stamp := fmt.Sprintf("\"%s\"", tm.Format("2006-01-02T15:04:05-0700"))
+	return []byte(stamp), nil
 }
 
 func ToTimestamp(t time.Time) Timestamp {
@@ -160,6 +174,7 @@ func (t Timestamp) ToISO8601Time() ISO8601Time {
 	return ISO8601Time(t.ToTime())
 }
 
+// ================================ V128D ====================================
 // The call is optimized for the 128 dimensional vectors with lenght 1
 func MatchAdvancedV128D(v1, v2 V128D, d float64) bool {
 	var sum float64 = 0.0

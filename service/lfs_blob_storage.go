@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +20,7 @@ const cMetaFileName = ".meta"
 type LfsBlobStorage struct {
 	logger   log4g.Logger
 	objects  map[common.Id]*common.BlobMeta
-	lru      *gorivets.Lru
+	lru      gorivets.LRU
 	metaFN   string
 	storeDir string
 	rwLock   sync.RWMutex
@@ -187,13 +188,32 @@ func (lbs *LfsBlobStorage) Delete(objId common.Id) error {
 	_, ok := lbs.objects[objId]
 	if !ok {
 		lbs.logger.Warn("Could not find BLOB by id=", objId)
-		return errors.New("Could not find object by id=" + string(objId))
+		return nil
 	}
 
 	delete(lbs.objects, objId)
 	os.Remove(fileName)
 	lbs.lru.DeleteWithCallback(objId, false)
 	return nil
+}
+
+func (lbs *LfsBlobStorage) DeleteAllWithPrefix(prefix common.Id) int {
+	lbs.rwLock.Lock()
+	defer lbs.rwLock.Unlock()
+
+	deleted := 0
+	for id := range lbs.objects {
+		if !strings.HasPrefix(string(id), string(prefix)) {
+			continue
+		}
+		fileName, _ := lbs.getFilePath(string(id))
+		delete(lbs.objects, id)
+		os.Remove(fileName)
+		lbs.lru.DeleteWithCallback(id, false)
+		deleted++
+	}
+
+	return deleted
 }
 
 // =============================== Private ===================================

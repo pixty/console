@@ -2,6 +2,9 @@ package model
 
 import (
 	"database/sql"
+	"io/ioutil"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-sql-driver/mysql"
@@ -128,7 +131,49 @@ func (mc *msql_connection) getDb() (*sql.DB, error) {
 	return db, nil
 }
 
+func (mc *msql_connection) exec(sqlQuery string, params ...interface{}) error {
+	db, err := mc.getDb()
+	if err != nil {
+		mc.logger.Warn("exec(): Could not get DB err=", err)
+		return err
+	}
+
+	_, err = db.Exec(sqlQuery, params...)
+	return err
+}
+
+func (mc *msql_connection) execScript(sqlScript string) error {
+	file, err := ioutil.ReadFile(sqlScript)
+
+	if err != nil {
+		mc.logger.Warn("Could not find/read script file ", sqlScript, ", err=", err)
+		return err
+	}
+
+	requests := strings.Split(string(file), ";")
+
+	for _, request := range requests {
+		if strings.Trim(request, " ") == "" {
+			continue
+		}
+		err := mc.exec(request)
+		if err != nil {
+			mc.logger.Warn("Ooops, error while executing the following statement request=", request, ", err=", err)
+			return err
+		}
+	}
+	return nil
+}
+
 // ========================= msql_main_persister =============================
+func (mmp *msql_main_persister) ExecQuery(sqlQuery string, params ...interface{}) error {
+	return mmp.dbc.exec(sqlQuery)
+}
+
+func (mmp *msql_main_persister) ExecScript(pathToFile string) error {
+	return mmp.dbc.execScript(pathToFile)
+}
+
 func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
 	db, err := mmp.dbc.getDb()
 	if err != nil {
@@ -156,6 +201,14 @@ func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
 }
 
 // ========================= msql_part_persister =============================
+func (mpp *msql_part_persister) ExecQuery(sqlQuery string, params ...interface{}) error {
+	return mpp.dbc.exec(sqlQuery)
+}
+
+func (mpp *msql_part_persister) ExecScript(pathToFile string) error {
+	return mpp.dbc.execScript(pathToFile)
+}
+
 func (mpp *msql_part_persister) InsertFace(f *Face) (int64, error) {
 	db, err := mpp.dbc.getDb()
 	if err != nil {
@@ -171,6 +224,34 @@ func (mpp *msql_part_persister) InsertFace(f *Face) (int64, error) {
 	}
 
 	return res.LastInsertId()
+}
+
+func (mpp *msql_part_persister) InsertFaces(faces []*Face) error {
+	mpp.logger.Debug("Inserting ", len(faces), " faces to DB: ", faces)
+	if len(faces) > 0 {
+		q := "INSERT INTO face(scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d) VALUES "
+		vals := []interface{}{}
+		for i, f := range faces {
+			if i > 0 {
+				q = q + ", "
+			}
+			q = q + "(?,?,?,?,?,?,?,?,?,?)"
+			vals = append(vals, f.SceneId, f.PersonId, f.CapturedAt, f.ImageId, f.Rect.LeftTop.Y, f.Rect.LeftTop.X, f.Rect.RightBottom.Y, f.Rect.RightBottom.X, f.FaceImageId, f.V128D.ToByteSlice())
+		}
+
+		db, err := mpp.dbc.getDb()
+		if err != nil {
+			mpp.logger.Warn("InsertFaces(): Could not get DB err=", err)
+			return err
+		}
+
+		_, err = db.Exec(q, vals...)
+		if err != nil {
+			mpp.logger.Warn("Could not execute insert query ", q, ", err=", err)
+			return err
+		}
+	}
+	return nil
 }
 
 func (mpp *msql_part_persister) GetFaceById(fId int64) (*Face, error) {
@@ -195,11 +276,52 @@ func (mpp *msql_part_persister) GetFaceById(fId int64) (*Face, error) {
 		err := rows.Scan(&f.SceneId, &f.PersonId, &f.CapturedAt, &f.ImageId, &f.Rect.LeftTop.Y, &f.Rect.LeftTop.X, &f.Rect.RightBottom.Y, &f.Rect.RightBottom.X, &f.FaceImageId, &vec)
 		if err != nil {
 			mpp.logger.Warn("GetFaceById(): could not scan result err=", err)
+			return nil, err
 		}
 		f.V128D.Assign(vec)
 		return f, nil
 	}
 	return nil, nil
+}
+
+func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
+	db, err := mpp.dbc.getDb()
+	if err != nil {
+		mpp.logger.Warn("FindFaces(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	mpp.logger.Debug("Requesting faces by ", fQuery)
+	q := "SELECT id, scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d FROM face "
+	if fQuery.PersonId != "" {
+		q = q + "WHERE person_id=\"" + fQuery.PersonId + "\""
+	}
+	q = q + " ORDER BY captured_at DESC"
+	if fQuery.Limit > 0 {
+		q = q + " LIMIT " + strconv.Itoa(fQuery.Limit)
+	}
+
+	rows, err := db.Query(q)
+	if err != nil {
+		mpp.logger.Warn("FindFaces(): could read faces by query=", fQuery, ", err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make([]*Face, 0, 10)
+	for rows.Next() {
+		f := new(Face)
+		f.V128D = common.NewV128D()
+		vec := make([]byte, common.V128D_SIZE)
+		err := rows.Scan(&f.Id, &f.SceneId, &f.PersonId, &f.CapturedAt, &f.ImageId, &f.Rect.LeftTop.Y, &f.Rect.LeftTop.X, &f.Rect.RightBottom.Y, &f.Rect.RightBottom.X, &f.FaceImageId, &vec)
+		if err != nil {
+			mpp.logger.Warn("FindFaces(): could not scan result err=", err)
+			return nil, err
+		}
+		f.V128D.Assign(vec)
+		res = append(res, f)
+	}
+	return res, nil
 }
 
 func (mpp *msql_part_persister) GetPersonById(pId string) (*Person, error) {
@@ -227,20 +349,121 @@ func (mpp *msql_part_persister) GetPersonById(pId string) (*Person, error) {
 	return nil, nil
 }
 
-func (mpp *msql_part_persister) InsertPerson(p *Person) (int64, error) {
+func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
+	db, err := mpp.dbc.getDb()
+	if err != nil {
+		mpp.logger.Warn("FindPersons(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	mpp.logger.Debug("Requesting faces by ", pQuery)
+	q := "SELECT id, cam_id, last_seen, profile_id, picture_id, match_group FROM person "
+	whereCond := []string{}
+	whereParams := []interface{}{}
+
+	if pQuery.CamId != "" {
+		whereCond = append(whereCond, "cam_id=?")
+		whereParams = append(whereParams, pQuery.CamId)
+	}
+
+	if pQuery.MaxLastSeenAt != common.TIMESTAMP_NA {
+		whereCond = append(whereCond, "last_seen <= ?")
+		whereParams = append(whereParams, uint64(pQuery.MaxLastSeenAt))
+	}
+
+	if pQuery.PersonIds != nil && len(pQuery.PersonIds) > 0 {
+		inc := "id IN("
+		for i, pid := range pQuery.PersonIds {
+			if i > 0 {
+				inc += ", ?"
+			} else {
+				inc += "?"
+			}
+			whereParams = append(whereParams, pid)
+		}
+		inc += ")"
+		whereCond = append(whereCond, inc)
+	}
+
+	if len(whereCond) > 0 {
+		for i, w := range whereCond {
+			if i > 0 {
+				q = q + " AND " + w
+			} else {
+				q = q + w
+			}
+		}
+	}
+
+	q = q + " ORDER BY last_seen DESC"
+	if pQuery.Limit > 0 {
+		q = q + " LIMIT " + strconv.Itoa(pQuery.Limit)
+	}
+
+	rows, err := db.Query(q, whereParams...)
+	if err != nil {
+		mpp.logger.Warn("FindPersons(): could read faces by query=", pQuery, ", err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make([]*Person, 0, 10)
+	for rows.Next() {
+		p := new(Person)
+		err := rows.Scan(&p.Id, &p.CamId, &p.LastSeenAt, &p.ProfileId, &p.PictureId, &p.MatchGroup)
+		if err != nil {
+			mpp.logger.Warn("FindPersons(): could not scan result err=", err)
+			return nil, err
+		}
+		res = append(res, p)
+	}
+	return res, nil
+
+}
+
+func (mpp *msql_part_persister) InsertPerson(p *Person) error {
 	db, err := mpp.dbc.getDb()
 	if err != nil {
 		mpp.logger.Warn("InsertPerson(): Could not get DB err=", err)
-		return -1, err
+		return err
 	}
-	res, err := db.Exec("INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
+	_, err = db.Exec("INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
 		p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 	if err != nil {
 		mpp.logger.Warn("InsertPerson(): Could not insert new person ", p, ", got the err=", err)
-		return -1, err
+		return err
 	}
 
-	return res.LastInsertId()
+	return nil
+}
+
+func (mpp *msql_part_persister) InsertPersons(persons []*Person) error {
+	mpp.logger.Debug("Inserting ", len(persons), " persons to DB: ", persons)
+	if len(persons) > 0 {
+		q := "INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES "
+		vals := []interface{}{}
+		for i, p := range persons {
+			if i > 0 {
+				q = q + ", "
+			}
+			q = q + "(?,?,?,?,?,?)"
+			vals = append(vals, p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
+		}
+
+		db, err := mpp.dbc.getDb()
+		if err != nil {
+			mpp.logger.Warn("InsertPersons(): Could not get DB err=", err)
+			return err
+		}
+
+		_, err = db.Exec(q, vals...)
+		if err != nil {
+			mpp.logger.Warn("Could not execute insert query ", q, ", err=", err)
+			return err
+		}
+	}
+	return nil
+
 }
 
 func (mpp *msql_part_persister) UpdatePerson(p *Person) error {
@@ -257,4 +480,31 @@ func (mpp *msql_part_persister) UpdatePerson(p *Person) error {
 		return err
 	}
 	return nil
+}
+
+func (mpp *msql_part_persister) UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error {
+	db, err := mpp.dbc.getDb()
+	if err != nil {
+		mpp.logger.Warn("UpdatePersonsLastSeenAt(): Could not get DB err=", err)
+		return err
+	}
+	if pids == nil || len(pids) == 0 {
+		return nil
+	}
+
+	q := "UPDATE person SET last_seen=? WHERE id IN ("
+	args := make([]interface{}, len(pids)+1)
+	args[0] = lastSeenAt
+	for i, pid := range pids {
+		if i > 0 {
+			q = q + ", ?"
+		} else {
+			q = q + "?"
+		}
+		args[i+1] = pid
+	}
+	q = q + ")"
+
+	_, err = db.Exec(q, args...)
+	return err
 }
