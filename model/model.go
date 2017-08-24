@@ -45,7 +45,7 @@ type (
 		LastSeenAt uint64
 		ProfileId  int64
 		PictureId  string // avatar
-		MatchGroup string
+		MatchGroup int64
 	}
 
 	// Point on a 2D plane
@@ -80,9 +80,12 @@ type (
 
 	// An organization profile's information
 	Profile struct {
-		ProfileId int64
+		Id        int64
 		OrgId     int64
 		PictureId string // avatar
+
+		//Meta (composit one) [displayName]Value
+		Meta map[string]string
 	}
 
 	ProfileMeta struct {
@@ -94,7 +97,7 @@ type (
 	// Persister is an interface which provides an access to persistent layer
 	Persister interface {
 		GetMainPersister() MainPersister
-		GetPartPersister(partId common.Id) PartPersister
+		GetPartPersister(partId string) PartPersister
 	}
 
 	GenericPersister interface {
@@ -132,12 +135,20 @@ type (
 		InsertPersons(persons []*Person) error
 		UpdatePerson(person *Person) error
 		UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error
+
+		// ==== Profiles ====
+		GetProfiles(prQuery *ProfileQuery) ([]*Profile, error)
+		// Looking for profiles for requiested match groups
+		// profileId -> mg
+		GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error)
 	}
 
 	FacesQuery struct {
-		// Request faces for the person
-		PersonId string
-		Limit    int
+		// Request faces for the list of persons
+		PersonIds []string
+		// Indicates to read short version (no V128D vectors) of faces
+		Short bool
+		Limit int
 	}
 
 	PersonsQuery struct {
@@ -149,6 +160,12 @@ type (
 		PersonIds []string
 		// How many to select
 		Limit int
+	}
+
+	ProfileQuery struct {
+		ProfileIds []int64
+		// Indicates, that meta is not needed
+		NoMeta bool
 	}
 )
 
@@ -166,5 +183,9 @@ func (q *PersonsQuery) String() string {
 }
 
 func (q *FacesQuery) String() string {
-	return fmt.Sprintf("{PersonsId=%s, Limit=%d}", q.PersonId, q.Limit)
+	return fmt.Sprintf("{PersonsIds=%v, Limit=%d}", q.PersonIds, q.Limit)
+}
+
+func (q *ProfileQuery) String() string {
+	return fmt.Sprintf("{ProfileIds=%v}", q.ProfileIds)
 }

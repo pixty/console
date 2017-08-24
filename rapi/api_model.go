@@ -9,7 +9,13 @@ type (
 	PersonStatus string
 
 	Organization struct {
-		Id common.Id `json:"id"`
+		Id   common.Id     `json:"id"`
+		Meta []OrgMetaInfo `json:"metaInfo"`
+	}
+
+	OrgMetaInfo struct {
+		FieldName string `json:"fieldName"`
+		FieldType string `json:"fieldType"`
 	}
 
 	Camera struct {
@@ -18,33 +24,29 @@ type (
 	}
 
 	Profile struct {
-		Id    common.Id `json:"id"`
-		OrgId common.Id `json:"orgId"`
+		Id        common.Id `json:"id"`
+		AvatarUrl string    `json:"avatarUrl"`
 
 		// Key-Value pairs for the organization
-		Attributes map[string]string `json:"attributes"`
+		Attributes map[string]string `json:"attributes,omitempty"`
 	}
 
 	Person struct {
-		Id         common.Id          `json:"id"`
-		CamId      *common.Id         `json:"camId,omitempty"`
-		CapturedAt common.ISO8601Time `json:"capturedAt"`
-		LostAt     common.ISO8601Time `json:"lostAt"`
-
-		// Status of the person. Please see explanations below. Possible values
-		// are "matching", "assigned" and "unassigned".
-		Status PersonStatus `json:"status"`
+		Id         string             `json:"id"`
+		CamId      *string            `json:"camId,omitempty"`
+		LastSeenAt common.ISO8601Time `json:"lastSeenAt"`
+		AvatarUrl  string             `json:"avatarUrl"`
 
 		// Contains Person <-> profile association. Could be nil, if there is
-		// no such association
+		// no such association. This assignment is done manually only.
 		Profile  *Profile       `json:"profile"`
 		Matches  []*Profile     `json:"matches"`
 		Pictures []*PictureInfo `json:"pictures"`
 	}
 
 	PictureInfo struct {
-		Id        common.Id           `json:"id"`
-		CamId     *common.Id          `json:"camId,omitempty"`
+		Id        string              `json:"id"`
+		CamId     *string             `json:"camId,omitempty"`
 		Timestamp *common.ISO8601Time `json:"timestamp,omitempty"`
 		Size      *model.Size         `json:"size,omitempty"`
 
@@ -55,27 +57,10 @@ type (
 		FaceURL *string          `json:"url,omitempty"`
 	}
 
-	Scene struct {
-		PicURL    string             `json:"url"`
+	SceneTimeline struct {
 		CamId     common.Id          `json:"camId"`
 		Timestamp common.ISO8601Time `json:"timestamp,omitempty"`
 		Persons   []*Person          `json:"persons"`
+		Frame     PictureInfo        `json:"frame"`
 	}
-)
-
-const (
-	// The person is in process of searching most best profile match. In the status
-	// the matches list can be updated, new profiles can be found and added to the
-	// list.
-	cPS_MATCHING = "matching"
-
-	// The person has a profile assigned (associated). The state means that a profile
-	// is assigned to the person (profile field is not nil) and no matching process
-	// is runing anymore. Matching list can be whether empty or not, but it is not
-	// going to be updated.
-	cPS_ASSIGNED = "assigned"
-
-	// There is no profile to the person association (profile field is nil), but
-	// matching process is over. The matching list is not going to be updated anymore.
-	cPS_UNASSIGNED = "unassigned"
 )

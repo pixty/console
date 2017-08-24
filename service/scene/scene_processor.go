@@ -1,4 +1,4 @@
-package service
+package scene
 
 import (
 	"bytes"
@@ -17,12 +17,20 @@ import (
 
 type (
 	SceneProcessor struct {
-		Persister  model.Persister     `inject:"perisister"`
+		Persister  model.Persister     `inject:"persister"`
 		ImgService common.ImageService `inject:"imgService"`
 		logger     log4g.Logger
 		cpCache    cam_pictures_cache
 		// Cutting faces border size
 		border int
+	}
+
+	SceneTimeline struct {
+		Timestamp   common.Timestamp
+		LatestPicId string
+		Persons []*model.Person
+		Profiles map[int64]*model.Profile
+		MatchGroups map[]
 	}
 
 	// A cache object which is used for storing last updated camera picture
@@ -56,8 +64,10 @@ func (sp *SceneProcessor) DiShutdown() {
 	sp.logger.Info("Shutting down.")
 }
 
-// ---------------------------- SceneService ---------------------------------
-func (sp *SceneProcessor) onFPCPScene(camId string, scene *fpcp.Scene) error {
+// ------------------------------- Public ------------------------------------
+// Handles scene object which is sent by FP. Returns error only in case of the
+// packet is not properly formed.
+func (sp *SceneProcessor) OnFPCPScene(camId string, scene *fpcp.Scene) error {
 	sp.logger.Debug("Got new scene from camId=", camId, " with ", scene.Persons, " persons on the scene")
 
 	if scene.Faces != nil && len(scene.Faces) > 0 {
@@ -96,6 +106,12 @@ func (sp *SceneProcessor) onFPCPScene(camId string, scene *fpcp.Scene) error {
 	return nil
 }
 
+// Returns scene timeline object
+func (sp *SceneProcessor) GetTimelineView() *SceneTimeline {
+
+}
+
+// ------------------------------ Private ------------------------------------
 func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) error {
 	sp.logger.Debug("Updating ", len(faces), " faces into DB")
 	pp := sp.Persister.GetPartPersister("FAKE")
@@ -128,7 +144,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) e
 	npc := len(persIdMap)
 	if npc > 0 {
 		sp.logger.Info("Found ", npc, " new person(s) on ", camId, ", will persist them...")
-		newPers := make([]*model.Person, npc)
+		newPers := make([]*model.Person, 0, npc)
 		for pid, f := range persIdMap {
 			p := new(model.Person)
 			p.Id = pid
@@ -247,7 +263,7 @@ func (sp *SceneProcessor) toFace(face *fpcp.Face) (*model.Face, error) {
 	f.PersonId = face.Id
 	toRect(face.Rect, &f.Rect)
 	if face.Vector == nil || len(face.Vector) != 128 {
-		sp.logger.Warn("We got a face for personId=", face.Id, ", but it doesn't have proper vector information (array is nil, or length is not 128 elements)")
+		sp.logger.Warn("We got a face for personId=", face.Id, ", but it doesn't have proper vector information (array is nil, or length is not 128 elements) face.Vector=", face.Vector)
 		return nil, errors.New("128 dimensional vector of face is expected.")
 	}
 	f.V128D = common.V128D(face.Vector)

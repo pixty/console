@@ -2,30 +2,33 @@ package rapi
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"path"
 	"strconv"
 	"time"
 
+	"github.com/jrivets/gorivets"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/cors"
+	"github.com/pixty/console/model"
 	"golang.org/x/net/context"
 	"gopkg.in/gin-gonic/gin.v1"
 	"gopkg.in/tylerb/graceful.v1"
 )
 
 type api struct {
-	ge     *gin.Engine
-	Config *common.ConsoleConfig `inject:""`
-	//	SceneService common.SceneService   `inject:"sceneService"`
-	ImgService common.ImageService `inject:"imgService"`
-	MainCtx    context.Context     `inject:"mainCtx"`
-	//Persister  common.Persister    `inject:"persister"`
-	logger log4g.Logger
+	ge         *gin.Engine
+	Config     *common.ConsoleConfig `inject:""`
+	ImgService common.ImageService   `inject:"imgService"`
+	MainCtx    context.Context       `inject:"mainCtx"`
+	Persister  model.Persister       `inject:"persister"`
+	logger     log4g.Logger
 }
 
 func NewAPI() *api {
@@ -45,17 +48,17 @@ func (a *api) DiPostConstruct() {
 	a.logger.Info("Constructing ReST API")
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
-	a.endpoint("GET", "/cameras/:camId/scenes", func(c *gin.Context) { a.h_GET_cameras_scenes(c, common.Id(c.Param("camId"))) })
-	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
-	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
-	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
-	a.endpoint("GET", "/profiles/:profileId/persons/:personId", func(c *gin.Context) {
-		a.h_GET_profile_persons_person(c, common.Id(c.Param("profileId")), common.Id(c.Param("personId")))
-	})
-	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
-	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
-	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
-	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
+	a.endpoint("GET", "/cameras/:camId/timeline", func(c *gin.Context) { a.h_GET_cameras_timeline(c, common.Id(c.Param("camId"))) })
+	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
+	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
+	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
+	//	a.endpoint("GET", "/profiles/:profileId/persons/:personId", func(c *gin.Context) {
+	//		a.h_GET_profile_persons_person(c, common.Id(c.Param("profileId")), common.Id(c.Param("personId")))
+	//	})
+	//	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
+	//	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
+	//	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
+	//	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
 
 }
 
@@ -78,9 +81,73 @@ func (a *api) h_GET_ping(c *gin.Context) {
 	c.String(http.StatusOK, "pong")
 }
 
-// GET /cameras/:camId/scenes
-func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
-	a.logger.Debug("GET /cameras/", camId, "/scenes")
+func parseInt64Param(prmName string, vals url.Values) (int64, error) {
+	v := vals[prmName]
+	if v == nil || len(v) == 0 {
+		return 0, errors.New("Param " + prmName + " not found.")
+	}
+	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
+}
+
+// Returns timeline object for the camera. The timeline object contains list
+// of persons sorted in descending order. The timeline object also has reference
+// to the last frame for the requested camera
+// GET /cameras/:camId/timeline?limit=20&maxTime=12341234
+func (a *api) h_GET_cameras_timeline(c *gin.Context, camId common.Id) {
+	a.logger.Debug("GET /cameras/", camId, "/timeline")
+
+	// Parse query
+	q := c.Request.URL.Query()
+	limit, err := parseInt64Param("limit", q)
+	if err != nil {
+		a.logger.Debug("Limit is not provided or wrong, err=", err)
+		limit = 20
+	}
+	maxTime, err := parseInt64Param("maxTime", q)
+	if err != nil {
+		a.logger.Debug("maxTime is not provided or wrong, err=", err)
+		maxTime = math.MaxInt64
+	}
+
+	pp := a.Persister.GetPartPersister("FAKE")
+	persons, err := pp.FindPersons(&model.PersonsQuery{MaxLastSeenAt: maxTime, Limit: limit})
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	pids := make([]string, len(persons))
+	for i, p := range persons {
+		pids[i] = p.Id
+	}
+
+	faces, err := pp.FindFaces(&model.FacesQuery{PersonIds: pids})
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	// Match Group & profiles
+	mgArr := make([]string, 0, len(persons))
+	prArr := make([]int64, 0, len(persons))
+	for _, p := range persons {
+		if p.ProfileId > 0 {
+			prArr = append(prArr, p.ProfileId)
+		}
+		if p.MatchGroup == "" {
+			continue
+		}
+		mgArr = append(mgArr, p.MatchGroup)
+	}
+
+	mgProfs, err := pp.GetProfilesByMGs(mgArr)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	profs, err := pp.GetProfiles(&model.ProfilQuery{ProfileIds: prArr, NoMeta: true})
+	if a.errorResponse(c, err) {
+		return
+	}
+
 	//	rctx := a.newRequestCtx(c)
 	//	scene, err := rctx.getScenes(&common.SceneQuery{
 	//		CamId: camId,
@@ -91,6 +158,85 @@ func (a *api) h_GET_cameras_scenes(c *gin.Context, camId common.Id) {
 	//	}
 
 	//	c.JSON(http.StatusOK, scene)
+}
+
+func (a *api) imgURL(imgId string) string {
+	if imgId == "" {
+		return ""
+	}
+	return a.cc.ImgsPrefix + imgId
+}
+
+func (a *api) toSceneTimeline(modPers []*model.Person, faces []*model.Face, modMgProfs map[string][]*model.Profile, modProfs []*model.Profile) *SceneTimeline {
+	profs := make(map[int64]*Profile)
+	for _, p := range modProfs {
+		profs[p.ProfileId] = a.profileToProfile(p)
+	}
+
+	mgProfs := make(map[string][]*Profile)
+	for mg, arr := range modMgProfs {
+		profArr := make([]*Profile, len(arr))
+		for i, p := range arr {
+			profArr[i] = a.profileToProfile(p)
+		}
+		mgProfs[mg] = profArr
+	}
+
+	persons := make(map[string]*Person)
+	for _, p := range modPers {
+		ps := a.personToPerson(p, profs)
+		if prfs, ok := mgProfs[p.MatchGroup]; ok {
+			ps.Matches = prfs
+		}
+		ps.Pictures = make([]*PictureInfo)
+		persons[p.Id] = ps
+	}
+
+	for _, f := range faces {
+		if p, ok := persons[f.PersonId]; ok {
+			pi := a.faceToPictureInfo(f)
+			p.Pictures = append(p.Pictures, pi)
+		}
+	}
+
+	stl := new(SceneTimeline)
+	stl.Persons = make([]*Person, 0, len(persons))
+	for _, p := range persons {
+		stl.Persons = append(stl.Persons, p)
+	}
+	return stl
+}
+
+func (a *api) personToPerson(p *model.Person, profs map[int64]*Profile) *Person {
+	ps := new(Person)
+	ps.Id = p.Id
+	ps.AvatarUrl = a.imgURL(p.PictureId)
+	ps.LastSeenAt = common.Timestamp(p.LastSeenAt).ToISO8601Time()
+	if pr, ok := profs[p.ProfileId]; ok {
+		ps.Profile = pr
+	}
+	return ps
+}
+
+func (a *api) profileToProfile(prf *model.Profile) *Profile {
+	p := new(Profile)
+	p.Id = prf.ProfileId
+	p.AvatarUrl = a.imgURL(prf.PictureId)
+	p.Attributes = pfr.Meta
+	return p
+}
+
+func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {
+	pi := new(PictureInfo)
+	pi.Id = face.FaceImageId
+	fUrl := a.imgURL(face.FaceImageId)
+	pi.FaceURL = &fUrl
+	pi.PicURL = a.imgURL(face.ImageId)
+	pi.Rect = &face.Rect
+	ts := common.Timestamp(face.CapturedAt)
+	tss := ts.ToISO8601Time()
+	pi.Timestamp = &tss
+	return pi
 }
 
 // GET /profiles/:profileId

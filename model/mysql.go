@@ -292,16 +292,33 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	}
 
 	mpp.logger.Debug("Requesting faces by ", fQuery)
-	q := "SELECT id, scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d FROM face "
-	if fQuery.PersonId != "" {
-		q = q + "WHERE person_id=\"" + fQuery.PersonId + "\""
+	var q string
+	if fQuery.Short {
+		q = "SELECT id, scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id FROM face "
+	} else {
+		q = "SELECT id, scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d FROM face "
 	}
+
+	whereParams := []interface{}{}
+	if fQuery.PersonIds != nil && len(fQuery.PersonIds) > 0 {
+		q += "WHERE id IN("
+		for i, pid := range fQuery.PersonIds {
+			if i > 0 {
+				q += ", ?"
+			} else {
+				q += "?"
+			}
+			whereParams = append(whereParams, pid)
+		}
+		q += ")"
+	}
+
 	q = q + " ORDER BY captured_at DESC"
 	if fQuery.Limit > 0 {
 		q = q + " LIMIT " + strconv.Itoa(fQuery.Limit)
 	}
 
-	rows, err := db.Query(q)
+	rows, err := db.Query(q, whereParams)
 	if err != nil {
 		mpp.logger.Warn("FindFaces(): could read faces by query=", fQuery, ", err=", err)
 		return nil, err
@@ -311,14 +328,22 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	res := make([]*Face, 0, 10)
 	for rows.Next() {
 		f := new(Face)
-		f.V128D = common.NewV128D()
-		vec := make([]byte, common.V128D_SIZE)
-		err := rows.Scan(&f.Id, &f.SceneId, &f.PersonId, &f.CapturedAt, &f.ImageId, &f.Rect.LeftTop.Y, &f.Rect.LeftTop.X, &f.Rect.RightBottom.Y, &f.Rect.RightBottom.X, &f.FaceImageId, &vec)
-		if err != nil {
-			mpp.logger.Warn("FindFaces(): could not scan result err=", err)
-			return nil, err
+		if fQuery.Short {
+			err := rows.Scan(&f.Id, &f.SceneId, &f.PersonId, &f.CapturedAt, &f.ImageId, &f.Rect.LeftTop.Y, &f.Rect.LeftTop.X, &f.Rect.RightBottom.Y, &f.Rect.RightBottom.X, &f.FaceImageId)
+			if err != nil {
+				mpp.logger.Warn("FindFaces(): could not scan short result err=", err)
+				return nil, err
+			}
+		} else {
+			f.V128D = common.NewV128D()
+			vec := make([]byte, common.V128D_SIZE)
+			err := rows.Scan(&f.Id, &f.SceneId, &f.PersonId, &f.CapturedAt, &f.ImageId, &f.Rect.LeftTop.Y, &f.Rect.LeftTop.X, &f.Rect.RightBottom.Y, &f.Rect.RightBottom.X, &f.FaceImageId, &vec)
+			if err != nil {
+				mpp.logger.Warn("FindFaces(): could not scan full result err=", err)
+				return nil, err
+			}
+			f.V128D.Assign(vec)
 		}
-		f.V128D.Assign(vec)
 		res = append(res, f)
 	}
 	return res, nil
@@ -386,6 +411,7 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 	}
 
 	if len(whereCond) > 0 {
+		q = q + " WHERE "
 		for i, w := range whereCond {
 			if i > 0 {
 				q = q + " AND " + w
@@ -447,6 +473,7 @@ func (mpp *msql_part_persister) InsertPersons(persons []*Person) error {
 				q = q + ", "
 			}
 			q = q + "(?,?,?,?,?,?)"
+			mpp.logger.Info("p=", p)
 			vals = append(vals, p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 		}
 
@@ -507,4 +534,129 @@ func (mpp *msql_part_persister) UpdatePersonsLastSeenAt(pids []string, lastSeenA
 
 	_, err = db.Exec(q, args...)
 	return err
+}
+
+func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) {
+	db, err := mpp.dbc.getDb()
+	if err != nil {
+		mpp.logger.Warn("GetProfiles(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	mpp.logger.Debug("Requesting faces by ", prQuery)
+	var q string
+	if prQuery.NoMeta {
+		q = "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
+	} else {
+		q = "SELECT (SELECT display_name FROM field_info WHERE org_id=p.org_id AND field_id=pm.field_id), pm.value, p.id, p.org_id, p.picture_id FROM profile AS p, profile_meta AS pm "
+	}
+
+	whereParams := []interface{}{}
+	if prQuery.ProfileIds != nil && len(prQuery.ProfileIds) > 0 {
+		q += "WHERE p.id IN("
+		for i, pid := range prQuery.ProfileIds {
+			if i > 0 {
+				q += ", ?"
+			} else {
+				q += "?"
+			}
+			whereParams = append(whereParams, pid)
+		}
+		q += ")"
+	}
+
+	rows, err := db.Query(q, whereParams)
+	if err != nil {
+		mpp.logger.Warn("GetProfiles(): could read profiles by query=", prQuery, ", err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	if prQuery.NoMeta {
+		res := make([]*Profile, 0, len(prQuery.ProfileIds))
+		for rows.Next() {
+			p := new(Profile)
+			err := rows.Scan(&p.Id, &p.OrgId, &p.PictureId)
+			if err != nil {
+				mpp.logger.Warn("GetProfiles(): could not scan result (No Meta) err=", err)
+				return nil, err
+			}
+			res = append(res, p)
+		}
+		return res, nil
+	}
+
+	pMap := make(map[int64]*Profile)
+	for rows.Next() {
+		var fn, v, picId string
+		var pid, orgId int64
+		err := rows.Scan(&fn, &v, &pid, &orgId, &picId)
+		if err != nil {
+			mpp.logger.Warn("GetProfiles(): could not scan result(with Meta!) err=", err)
+			return nil, err
+		}
+
+		p, ok := pMap[pid]
+		if !ok {
+			p = new(Profile)
+			p.Id = pid
+			p.PictureId = picId
+			p.OrgId = orgId
+			p.Meta = make(map[string]string)
+			pMap[pid] = p
+		}
+		p.Meta[fn] = v
+	}
+
+	res := make([]*Profile, 0, len(pMap))
+	for _, p := range pMap {
+		res = append(res, p)
+	}
+	return res, nil
+}
+
+func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64][]int64, error) {
+	db, err := mpp.dbc.getDb()
+	if err != nil {
+		mpp.logger.Warn("GetProfilesByMGs(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	res := make(map[int64][]*Profile)
+	if matchGroups == nil || len(matchGroups) == 0 {
+		return res, nil
+	}
+
+	q := "SELECT profile_id, match_group FROM person WHERE profile_id > 0 AND match_group IN("
+	whereParams := []interface{}{}
+	for i, mg := range matchGroups {
+		if i > 0 {
+			q += ", ?"
+		} else {
+			q += "?"
+		}
+		whereParams = append(whereParams, mg)
+	}
+	q += ")"
+
+	rows, err := db.Query(q, whereParams)
+	if err != nil {
+		mpp.logger.Warn("GetProfilesByMGs(): could read profiles by match groups, err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	// pid -> mg
+	prfMap := make(map[int64]int64)
+	for rows.Next() {
+		var pid, mg int64
+		err := rows.Scan(&pid, &mg)
+		if err != nil {
+			mpp.logger.Warn("GetProfilesByMGs(): could not scan result err=", err)
+			return nil, err
+		}
+		prfMap[pid] = mg
+	}
+
+	return prfMap, nil
 }

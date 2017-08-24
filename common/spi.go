@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pixty/console/common/fpcp"
 	"github.com/satori/go.uuid"
 )
 
@@ -77,13 +76,6 @@ type (
 
 		// Deletes all ids with prefix
 		DeleteAllWithPrefix(prefix Id) int
-	}
-
-	SceneService interface {
-		// invoked when an FPCP scene packet is received. Error indicates something
-		// wrong in the packet or data. FrameProcessor must be notified and re-
-		// initialized, if possible.
-		onFPCPScene(camId string, scene *fpcp.Scene) error
 	}
 
 	Error struct {

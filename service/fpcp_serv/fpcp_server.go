@@ -31,14 +31,15 @@ const (
 type (
 	FPCPServer struct {
 		// The console configuration. Will be injected
-		Config    *common.ConsoleConfig `inject:""`
-		Persister model.Persister       `inject:"persister"`
-		log       gorivets.Logger
-		sessions  gorivets.LRU
-		ak2sess   map[string]string // access keys to sess
-		listener  net.Listener
-		started   bool
-		lock      sync.Mutex
+		Config     *common.ConsoleConfig `inject:""`
+		Persister  model.Persister       `inject:"persister"`
+		ScnService common.SceneService   `inject:"scnProcessor"`
+		log        gorivets.Logger
+		sessions   gorivets.LRU
+		ak2sess    map[string]string // access keys to sess
+		listener   net.Listener
+		started    bool
+		lock       sync.Mutex
 	}
 )
 
@@ -121,20 +122,20 @@ func (fs *FPCPServer) onDropSession(sid, ak interface{}) {
 	}()
 }
 
-func (fs *FPCPServer) checkSession(ctx context.Context) bool {
+func (fs *FPCPServer) checkSession(ctx context.Context) string {
 	md, ok := metadata.FromContext(ctx)
 	if ok {
 		sess := getFirstValue(md, mtKeySessionId)
 		ak, ok := fs.sessions.Get(sess)
 		if ok {
 			fs.log.Debug("Session check is ok for session_id=", sess, ", access_key=", ak)
-			return true
+			return ak.(string)
 		}
 		fs.log.Warn("Unknown connection for session_id=", sess)
 	} else {
 		fs.log.Warn("Got a gRPC call expecting session id, but it is not provided")
 	}
-	return false
+	return ""
 }
 
 func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
@@ -197,11 +198,12 @@ func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *fpcp.AuthToke
 }
 
 func (fs *FPCPServer) OnScene(ctx context.Context, scn *fpcp.Scene) (*fpcp.Void, error) {
-	if !fs.checkSession(ctx) {
+	camId := fs.checkSession(ctx)
+	if camId == "" {
 		fs.log.Warn("Unauthorized call to OnScene()")
 		setError(ctx, mtErrVal_UnknonwSess)
 		return &fpcp.Void{}, nil
 	}
-	fs.log.Info("got OnScene() ", len(scn.Frame.Data))
+	fs.ScnService.OnFPCPScene(camId, scn)
 	return &fpcp.Void{}, nil
 }

@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `person` (
 	`last_seen`           BIGINT(20)      NOT NULL,
 	`profile_id`          BIGINT(20)      NOT NULL,
 	`picture_id`          VARCHAR(255) NOT NULL,
-	`match_group`         VARCHAR(255) NOT NULL,
+	`match_group`         BIGINT(20) NOT NULL,
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `cam_id_idx` USING BTREE (cam_id),
@@ -72,24 +72,6 @@ CREATE TABLE IF NOT EXISTS `face` (
 	`img_bottom`            INT,
 	`face_image_id`         VARCHAR(255)    NOT NULL,
 	`v128d`	                BLOB,
-	PRIMARY KEY (`id`),
-	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `person_id_idx` USING BTREE (person_id),
-	INDEX `captured_at_idx` USING BTREE (captured_at)
-) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
-
-
-CREATE TABLE IF NOT EXISTS `face` (
-	`id`                     BIGINT(20)      NOT NULL AUTO_INCREMENT,
-	`person_id`              VARCHAR(255)    NOT NULL,
-	`captured_at`			  BIGINT(20)      NOT NULL,
-	`image_id`               VARCHAR(255)    NOT NULL,
-	`img_top`                INT,
-	`img_left`               INT,
-	`img_bottom`             INT,
-	`img_right`              INT,
-	`face_image_id`          VARCHAR(255)    NOT NULL,
-	`v128d`                  BLOB,
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `person_id_idx` USING BTREE (person_id),
