@@ -291,7 +291,7 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 		return nil, err
 	}
 
-	mpp.logger.Debug("Requesting faces by ", fQuery)
+	mpp.logger.Debug("FindFaces: Requesting faces by ", fQuery)
 	var q string
 	if fQuery.Short {
 		q = "SELECT id, scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id FROM face "
@@ -300,8 +300,12 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	}
 
 	whereParams := []interface{}{}
-	if fQuery.PersonIds != nil && len(fQuery.PersonIds) > 0 {
-		q += "WHERE id IN("
+	if fQuery.PersonIds != nil {
+		if len(fQuery.PersonIds) == 0 {
+			mpp.logger.Debug("FindFaces: empty, but not nil fQuery.PersonIds, returns empty result ")
+			return []*Face{}, nil
+		}
+		q += "WHERE person_id IN("
 		for i, pid := range fQuery.PersonIds {
 			if i > 0 {
 				q += ", ?"
@@ -318,7 +322,8 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 		q = q + " LIMIT " + strconv.Itoa(fQuery.Limit)
 	}
 
-	rows, err := db.Query(q, whereParams)
+	mpp.logger.Debug("FindFaces: q=", q, " ", whereParams)
+	rows, err := db.Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("FindFaces(): could read faces by query=", fQuery, ", err=", err)
 		return nil, err
@@ -381,7 +386,7 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 		return nil, err
 	}
 
-	mpp.logger.Debug("Requesting faces by ", pQuery)
+	mpp.logger.Debug("FindPersons: Requesting faces by ", pQuery)
 	q := "SELECT id, cam_id, last_seen, profile_id, picture_id, match_group FROM person "
 	whereCond := []string{}
 	whereParams := []interface{}{}
@@ -393,10 +398,14 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 
 	if pQuery.MaxLastSeenAt != common.TIMESTAMP_NA {
 		whereCond = append(whereCond, "last_seen <= ?")
-		whereParams = append(whereParams, uint64(pQuery.MaxLastSeenAt))
+		whereParams = append(whereParams, int64(pQuery.MaxLastSeenAt))
 	}
 
-	if pQuery.PersonIds != nil && len(pQuery.PersonIds) > 0 {
+	if pQuery.PersonIds != nil {
+		if len(pQuery.PersonIds) == 0 {
+			mpp.logger.Debug("FindPersons: empty, but not nil pQuery.PersonIds, returns empty result ")
+			return []*Person{}, nil
+		}
 		inc := "id IN("
 		for i, pid := range pQuery.PersonIds {
 			if i > 0 {
@@ -426,6 +435,7 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 		q = q + " LIMIT " + strconv.Itoa(pQuery.Limit)
 	}
 
+	mpp.logger.Debug("FindPersons: q=", q, whereParams)
 	rows, err := db.Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("FindPersons(): could read faces by query=", pQuery, ", err=", err)
@@ -532,6 +542,7 @@ func (mpp *msql_part_persister) UpdatePersonsLastSeenAt(pids []string, lastSeenA
 	}
 	q = q + ")"
 
+	mpp.logger.Debug("UpdatePersonsLastSeenAt(): q=", q, " ", args)
 	_, err = db.Exec(q, args...)
 	return err
 }
@@ -543,7 +554,7 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 		return nil, err
 	}
 
-	mpp.logger.Debug("Requesting faces by ", prQuery)
+	mpp.logger.Debug("GetProfiles: Requesting profiles by ", prQuery)
 	var q string
 	if prQuery.NoMeta {
 		q = "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
@@ -552,7 +563,12 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 	}
 
 	whereParams := []interface{}{}
-	if prQuery.ProfileIds != nil && len(prQuery.ProfileIds) > 0 {
+	if prQuery.ProfileIds != nil {
+		if len(prQuery.ProfileIds) == 0 {
+			mpp.logger.Debug("GetProfiles: empty, but not nil prQuery.ProfileIds, returns empty result ")
+			return []*Profile{}, nil
+		}
+
 		q += "WHERE p.id IN("
 		for i, pid := range prQuery.ProfileIds {
 			if i > 0 {
@@ -565,7 +581,8 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 		q += ")"
 	}
 
-	rows, err := db.Query(q, whereParams)
+	mpp.logger.Debug("GetProfiles: q=", q, " ", whereParams)
+	rows, err := db.Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("GetProfiles(): could read profiles by query=", prQuery, ", err=", err)
 		return nil, err
@@ -615,16 +632,17 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 	return res, nil
 }
 
-func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64][]int64, error) {
+func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error) {
 	db, err := mpp.dbc.getDb()
 	if err != nil {
 		mpp.logger.Warn("GetProfilesByMGs(): Could not get DB err=", err)
 		return nil, err
 	}
 
-	res := make(map[int64][]*Profile)
+	// pid -> mg
+	prfMap := make(map[int64]int64)
 	if matchGroups == nil || len(matchGroups) == 0 {
-		return res, nil
+		return prfMap, nil
 	}
 
 	q := "SELECT profile_id, match_group FROM person WHERE profile_id > 0 AND match_group IN("
@@ -639,15 +657,14 @@ func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64
 	}
 	q += ")"
 
-	rows, err := db.Query(q, whereParams)
+	mpp.logger.Debug("GetProfilesByMGs: q=", q, " ", whereParams)
+	rows, err := db.Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("GetProfilesByMGs(): could read profiles by match groups, err=", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	// pid -> mg
-	prfMap := make(map[int64]int64)
 	for rows.Next() {
 		var pid, mg int64
 		err := rows.Scan(&pid, &mg)

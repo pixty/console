@@ -44,6 +44,8 @@ type ConsoleConfig struct {
 
 	// HTTP images endpoint prefix
 	ImgsPrefix string
+	// how long to keep temporary images
+	ImgsTmpTTLSec int
 
 	logger log4g.Logger
 }
@@ -58,6 +60,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.LbsDir = "/tmp/lfsBlobStorage"
 	cc.lbsMaxSize = "10G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
+	cc.ImgsTmpTTLSec = 60
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }

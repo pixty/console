@@ -25,8 +25,8 @@ func ImgMakeTmpCamId(camId string, ts Timestamp) string {
 	return IMG_TMP_CAM_PREFIX + string(camId) + strconv.FormatUint(uint64(ts), 10)
 }
 
-func ImgIsTmpCamId(camId string) bool {
-	return strings.HasPrefix(camId, IMG_TMP_CAM_PREFIX)
+func ImgIsTmpCamId(imgId string) bool {
+	return strings.HasPrefix(imgId, IMG_TMP_CAM_PREFIX)
 }
 
 func ImgMakeId(imgId string, rect *image.Rectangle) string {

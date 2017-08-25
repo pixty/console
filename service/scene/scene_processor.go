@@ -2,10 +2,12 @@ package scene
 
 import (
 	"bytes"
+	"container/list"
 	"errors"
 	"image"
 	"image/png"
 	"sync"
+	"time"
 
 	"github.com/jrivets/gorivets"
 
@@ -13,30 +15,39 @@ import (
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/common/fpcp"
 	"github.com/pixty/console/model"
+	"golang.org/x/net/context"
 )
 
 type (
 	SceneProcessor struct {
-		Persister  model.Persister     `inject:"persister"`
-		ImgService common.ImageService `inject:"imgService"`
+		Persister  model.Persister       `inject:"persister"`
+		ImgService common.ImageService   `inject:"imgService"`
+		MainCtx    context.Context       `inject:"mainCtx"`
+		CConfig    *common.ConsoleConfig `inject:""`
 		logger     log4g.Logger
-		cpCache    cam_pictures_cache
+		cpCache    *cam_pictures_cache
 		// Cutting faces border size
 		border int
 	}
 
 	SceneTimeline struct {
-		Timestamp   common.Timestamp
+		CamId       string
 		LatestPicId string
-		Persons []*model.Person
+		Persons     []*model.Person
+		// Map of personId -> []faces
+		Faces map[string][]*model.Face
+		// Map of profileId -> Profile
 		Profiles map[int64]*model.Profile
-		MatchGroups map[]
+		// Map of profileId -> MG ids
+		Prof2MGs map[int64]int64
 	}
 
 	// A cache object which is used for storing last updated camera picture
 	cam_pictures_cache struct {
 		lock    sync.Mutex
-		camPics map[string]string
+		camPics gorivets.LRU
+		deleted *list.List
+		dead    *list.List
 	}
 )
 
@@ -44,7 +55,10 @@ func NewSceneProcessor() *SceneProcessor {
 	sp := new(SceneProcessor)
 	sp.logger = log4g.GetLogger("pixty.SceneProcessor")
 	sp.border = 20
-	sp.cpCache.camPics = make(map[string]string)
+	sp.cpCache = new(cam_pictures_cache)
+	sp.cpCache.camPics = gorivets.NewTtlLRU(1000, time.Minute, sp.cpCache.on_delete)
+	sp.cpCache.deleted = list.New()
+	sp.cpCache.dead = list.New()
 	return sp
 }
 
@@ -57,6 +71,20 @@ func (sp *SceneProcessor) DiPhase() int {
 func (sp *SceneProcessor) DiInit() error {
 	sp.logger.Info("DiInit()")
 	sp.ImgService.DeleteAllWithPrefix(common.IMG_TMP_CAM_PREFIX)
+
+	go func() {
+		sleepTime := time.Duration(sp.CConfig.ImgsTmpTTLSec) * time.Second
+		sp.logger.Info("Runing cleaning images loop to check every ", sp.CConfig.ImgsTmpTTLSec, " seconds")
+		for {
+			select {
+			case <-time.After(sleepTime):
+				sp.cpCache.on_sweep(sp.ImgService)
+			case <-sp.MainCtx.Done():
+				sp.logger.Info("Shutting down cleaning temporary images loop")
+				return
+			}
+		}
+	}()
 	return nil
 }
 
@@ -107,8 +135,79 @@ func (sp *SceneProcessor) OnFPCPScene(camId string, scene *fpcp.Scene) error {
 }
 
 // Returns scene timeline object
-func (sp *SceneProcessor) GetTimelineView() *SceneTimeline {
+func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, limit int) (*SceneTimeline, error) {
+	pp := sp.Persister.GetPartPersister("FAKE")
+	persons, err := pp.FindPersons(&model.PersonsQuery{CamId: camId, MaxLastSeenAt: maxTs, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
 
+	// collecting selected persons ids
+	pids := make([]string, len(persons))
+	for i, p := range persons {
+		pids[i] = p.Id
+	}
+
+	// collecting faces
+	faces, err := pp.FindFaces(&model.FacesQuery{PersonIds: pids, Short: true})
+	if err != nil {
+		return nil, err
+	}
+	facesMap := make(map[string][]*model.Face)
+	for _, f := range faces {
+		farr, ok := facesMap[f.PersonId]
+		if !ok {
+			farr = make([]*model.Face, 0, 3)
+		}
+		farr = append(farr, f)
+		facesMap[f.PersonId] = farr
+	}
+	sp.logger.Debug("faces=", faces, ", facesMap=", facesMap)
+
+	// collecting MatchGroups and Profile Id
+	mgArr := make([]int64, 0, len(persons))
+	prArr := make([]int64, 0, len(persons))
+	profRes := make(map[int64]*model.Profile) // will use it in result
+	for _, p := range persons {
+		if p.ProfileId > 0 {
+			prArr = append(prArr, p.ProfileId)
+			profRes[p.ProfileId] = nil // so far
+		}
+		if p.MatchGroup > 0 {
+			mgArr = append(mgArr, p.MatchGroup)
+		}
+	}
+
+	// First, getting profiles for the match groups. It can contain profiles,
+	// that are not in prArr, because not all persons for the MGs could be selected
+	// to persons
+	prof2MGs, err := pp.GetProfilesByMGs(mgArr)
+	if err != nil {
+		return nil, err
+	}
+	for pid, _ := range prof2MGs {
+		if _, ok := profRes[pid]; !ok {
+			prArr = append(prArr, pid)
+			profRes[pid] = nil
+		}
+	}
+
+	profs, err := pp.GetProfiles(&model.ProfileQuery{ProfileIds: prArr, NoMeta: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, prof := range profs {
+		profRes[prof.Id] = prof
+	}
+
+	stl := new(SceneTimeline)
+	stl.CamId = camId
+	stl.Persons = persons
+	stl.Faces = facesMap
+	stl.Prof2MGs = prof2MGs
+	stl.Profiles = profRes
+	stl.LatestPicId = sp.cpCache.get_cam_image(camId)
+	return stl, nil
 }
 
 // ------------------------------ Private ------------------------------------
@@ -243,10 +342,7 @@ func (sp *SceneProcessor) saveFrameImage(imgId string, camId string, frame *fpcp
 	}
 	_, err := sp.ImgService.New(idesc)
 	if err == nil {
-		oldImgId := sp.cpCache.set_cam_image(camId, imgId)
-		if common.ImgIsTmpCamId(oldImgId) {
-			sp.ImgService.Delete(common.Id(oldImgId))
-		}
+		sp.cpCache.set_cam_image(camId, imgId)
 	}
 	return err
 }
@@ -270,17 +366,44 @@ func (sp *SceneProcessor) toFace(face *fpcp.Face) (*model.Face, error) {
 	return f, nil
 }
 
-func (cpc cam_pictures_cache) set_cam_image(camId string, imgId string) string {
+func (cpc *cam_pictures_cache) set_cam_image(camId string, imgId string) {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
-	prev, _ := cpc.camPics[camId]
-	cpc.camPics[camId] = imgId
-	return prev
+	cpc.camPics.Add(camId, imgId, 1)
 }
 
-func (cpc cam_pictures_cache) get_cam_image(camId string) string {
-	return cpc.camPics[camId]
+func (cpc *cam_pictures_cache) get_cam_image(camId string) string {
+	cpc.lock.Lock()
+	defer cpc.lock.Unlock()
+
+	if imgId, ok := cpc.camPics.Peek(camId); ok {
+		return imgId.(string)
+	}
+	return ""
+}
+
+func (cpc *cam_pictures_cache) on_delete(k, v interface{}) {
+	if common.ImgIsTmpCamId(v.(string)) {
+		cpc.deleted.PushBack(v)
+	}
+}
+
+func (cpc *cam_pictures_cache) on_sweep(imgService common.ImageService) {
+	cpc.lock.Lock()
+	defer cpc.lock.Unlock()
+
+	cpc.camPics.Sweep()
+
+	for cpc.dead.Len() > 0 {
+		imgId := cpc.dead.Remove(cpc.dead.Front()).(string)
+		imgService.Delete(common.Id(imgId))
+	}
+
+	// swap lists
+	tmp := cpc.dead
+	cpc.dead = cpc.deleted
+	cpc.deleted = tmp
 }
 
 func toImgRect(r *model.Rectangle, res *image.Rectangle, sz *fpcp.Size, expand int) {

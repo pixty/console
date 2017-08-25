@@ -24,8 +24,8 @@ type (
 	}
 
 	Profile struct {
-		Id        common.Id `json:"id"`
-		AvatarUrl string    `json:"avatarUrl"`
+		Id        int64  `json:"id"`
+		AvatarUrl string `json:"avatarUrl"`
 
 		// Key-Value pairs for the organization
 		Attributes map[string]string `json:"attributes,omitempty"`
@@ -58,9 +58,8 @@ type (
 	}
 
 	SceneTimeline struct {
-		CamId     common.Id          `json:"camId"`
-		Timestamp common.ISO8601Time `json:"timestamp,omitempty"`
-		Persons   []*Person          `json:"persons"`
-		Frame     PictureInfo        `json:"frame"`
+		CamId   common.Id   `json:"camId"`
+		Persons []*Person   `json:"persons"`
+		Frame   PictureInfo `json:"frame"`
 	}
 )

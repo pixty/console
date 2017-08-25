@@ -17,6 +17,7 @@ import (
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/common/fpcp"
 	"github.com/pixty/console/model"
+	"github.com/pixty/console/service/scene"
 )
 
 const (
@@ -33,7 +34,7 @@ type (
 		// The console configuration. Will be injected
 		Config     *common.ConsoleConfig `inject:""`
 		Persister  model.Persister       `inject:"persister"`
-		ScnService common.SceneService   `inject:"scnProcessor"`
+		ScnService *scene.SceneProcessor `inject:"scnProcessor"`
 		log        gorivets.Logger
 		sessions   gorivets.LRU
 		ak2sess    map[string]string // access keys to sess

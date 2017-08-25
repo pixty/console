@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"time"
@@ -17,19 +18,27 @@ import (
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/cors"
 	"github.com/pixty/console/model"
+	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
 	"gopkg.in/gin-gonic/gin.v1"
 	"gopkg.in/tylerb/graceful.v1"
 )
 
 type api struct {
-	ge         *gin.Engine
-	Config     *common.ConsoleConfig `inject:""`
-	ImgService common.ImageService   `inject:"imgService"`
-	MainCtx    context.Context       `inject:"mainCtx"`
-	Persister  model.Persister       `inject:"persister"`
-	logger     log4g.Logger
+	ge           *gin.Engine
+	Config       *common.ConsoleConfig `inject:""`
+	ImgService   common.ImageService   `inject:"imgService"`
+	ScnProcessor *scene.SceneProcessor `inject:"scnProcessor"`
+	MainCtx      context.Context       `inject:"mainCtx"`
+	Persister    model.Persister       `inject:"persister"`
+	logger       log4g.Logger
 }
+
+const (
+	cScnPersonsMinLimit = 3
+	cScnPersonsDefLimit = 20
+	cScnPersonsMaxLimit = 50
+)
 
 func NewAPI() *api {
 	return new(api)
@@ -48,7 +57,7 @@ func (a *api) DiPostConstruct() {
 	a.logger.Info("Constructing ReST API")
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
-	a.endpoint("GET", "/cameras/:camId/timeline", func(c *gin.Context) { a.h_GET_cameras_timeline(c, common.Id(c.Param("camId"))) })
+	a.endpoint("GET", "/cameras/:camId/timeline", func(c *gin.Context) { a.h_GET_cameras_timeline(c, c.Param("camId")) })
 	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
@@ -93,117 +102,83 @@ func parseInt64Param(prmName string, vals url.Values) (int64, error) {
 // of persons sorted in descending order. The timeline object also has reference
 // to the last frame for the requested camera
 // GET /cameras/:camId/timeline?limit=20&maxTime=12341234
-func (a *api) h_GET_cameras_timeline(c *gin.Context, camId common.Id) {
+func (a *api) h_GET_cameras_timeline(c *gin.Context, camId string) {
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
 	// Parse query
 	q := c.Request.URL.Query()
 	limit, err := parseInt64Param("limit", q)
 	if err != nil {
-		a.logger.Debug("Limit is not provided or wrong, err=", err)
-		limit = 20
+		limit = cScnPersonsDefLimit
+		a.logger.Debug("h_GET_cameras_timeline: Limit is not provided or wrong, err=", err, " set it to ", cScnPersonsDefLimit)
 	}
+
+	if limit < cScnPersonsMinLimit {
+		a.logger.Info("h_GET_cameras_timeline: limit=", limit, ", less than ", cScnPersonsMinLimit, ", set it to ", cScnPersonsMinLimit)
+		limit = cScnPersonsMinLimit
+	}
+
+	if limit > cScnPersonsMaxLimit {
+		a.logger.Info("h_GET_cameras_timeline: limit=", limit, ", greater than ", cScnPersonsMaxLimit, ", set it to ", cScnPersonsMaxLimit)
+		limit = cScnPersonsMaxLimit
+	}
+
 	maxTime, err := parseInt64Param("maxTime", q)
 	if err != nil {
 		a.logger.Debug("maxTime is not provided or wrong, err=", err)
 		maxTime = math.MaxInt64
 	}
 
-	pp := a.Persister.GetPartPersister("FAKE")
-	persons, err := pp.FindPersons(&model.PersonsQuery{MaxLastSeenAt: maxTime, Limit: limit})
+	stl, err := a.ScnProcessor.GetTimelineView(camId, common.Timestamp(maxTime), int(limit))
 	if a.errorResponse(c, err) {
 		return
 	}
 
-	pids := make([]string, len(persons))
-	for i, p := range persons {
-		pids[i] = p.Id
-	}
-
-	faces, err := pp.FindFaces(&model.FacesQuery{PersonIds: pids})
-	if a.errorResponse(c, err) {
-		return
-	}
-
-	// Match Group & profiles
-	mgArr := make([]string, 0, len(persons))
-	prArr := make([]int64, 0, len(persons))
-	for _, p := range persons {
-		if p.ProfileId > 0 {
-			prArr = append(prArr, p.ProfileId)
-		}
-		if p.MatchGroup == "" {
-			continue
-		}
-		mgArr = append(mgArr, p.MatchGroup)
-	}
-
-	mgProfs, err := pp.GetProfilesByMGs(mgArr)
-	if a.errorResponse(c, err) {
-		return
-	}
-
-	profs, err := pp.GetProfiles(&model.ProfilQuery{ProfileIds: prArr, NoMeta: true})
-	if a.errorResponse(c, err) {
-		return
-	}
-
-	//	rctx := a.newRequestCtx(c)
-	//	scene, err := rctx.getScenes(&common.SceneQuery{
-	//		CamId: camId,
-	//		Limit: 1,
-	//	})
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	c.JSON(http.StatusOK, scene)
+	c.JSON(http.StatusOK, a.toSceneTimeline(stl))
 }
 
 func (a *api) imgURL(imgId string) string {
 	if imgId == "" {
 		return ""
 	}
-	return a.cc.ImgsPrefix + imgId
+	return a.Config.ImgsPrefix + imgId
 }
 
-func (a *api) toSceneTimeline(modPers []*model.Person, faces []*model.Face, modMgProfs map[string][]*model.Profile, modProfs []*model.Profile) *SceneTimeline {
-	profs := make(map[int64]*Profile)
-	for _, p := range modProfs {
-		profs[p.ProfileId] = a.profileToProfile(p)
-	}
-
-	mgProfs := make(map[string][]*Profile)
-	for mg, arr := range modMgProfs {
-		profArr := make([]*Profile, len(arr))
-		for i, p := range arr {
-			profArr[i] = a.profileToProfile(p)
+func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
+	prfMap := a.profilesToProfiles(scnTl.Profiles)
+	mg2Profs := make(map[int64][]*Profile)
+	for pid, mgId := range scnTl.Prof2MGs {
+		arr, ok := mg2Profs[mgId]
+		if !ok {
+			arr = make([]*Profile, 0, 1)
 		}
-		mgProfs[mg] = profArr
-	}
-
-	persons := make(map[string]*Person)
-	for _, p := range modPers {
-		ps := a.personToPerson(p, profs)
-		if prfs, ok := mgProfs[p.MatchGroup]; ok {
-			ps.Matches = prfs
+		pr, ok := prfMap[pid]
+		if ok {
+			arr = append(arr, pr)
 		}
-		ps.Pictures = make([]*PictureInfo)
-		persons[p.Id] = ps
-	}
-
-	for _, f := range faces {
-		if p, ok := persons[f.PersonId]; ok {
-			pi := a.faceToPictureInfo(f)
-			p.Pictures = append(p.Pictures, pi)
-		}
+		mg2Profs[mgId] = arr
 	}
 
 	stl := new(SceneTimeline)
-	stl.Persons = make([]*Person, 0, len(persons))
-	for _, p := range persons {
-		stl.Persons = append(stl.Persons, p)
+	stl.Persons = make([]*Person, len(scnTl.Persons))
+	for i, p := range scnTl.Persons {
+		prsn := a.personToPerson(p, prfMap)
+		prsn.CamId = &scnTl.CamId
+		fcs, ok := scnTl.Faces[p.Id]
+		if ok {
+			prsn.Pictures = a.facesToPictureInfos(fcs)
+		}
+		m2p, ok := mg2Profs[p.MatchGroup]
+		if ok {
+			prsn.Matches = m2p
+		}
+		stl.Persons[i] = prsn
 	}
+
+	stl.CamId = common.Id(scnTl.CamId)
+	stl.Frame.Id = scnTl.LatestPicId
+	stl.Frame.PicURL = a.imgURL(scnTl.LatestPicId)
+
 	return stl
 }
 
@@ -218,12 +193,31 @@ func (a *api) personToPerson(p *model.Person, profs map[int64]*Profile) *Person 
 	return ps
 }
 
+func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*Profile {
+	res := make(map[int64]*Profile)
+	for pid, p := range profiles {
+		res[pid] = a.profileToProfile(p)
+	}
+	return res
+}
+
 func (a *api) profileToProfile(prf *model.Profile) *Profile {
 	p := new(Profile)
-	p.Id = prf.ProfileId
+	p.Id = prf.Id
 	p.AvatarUrl = a.imgURL(prf.PictureId)
-	p.Attributes = pfr.Meta
+	p.Attributes = prf.Meta
 	return p
+}
+
+func (a *api) facesToPictureInfos(faces []*model.Face) []*PictureInfo {
+	if faces == nil {
+		return []*PictureInfo{}
+	}
+	res := make([]*PictureInfo, len(faces))
+	for i, f := range faces {
+		res[i] = a.faceToPictureInfo(f)
+	}
+	return res
 }
 
 func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {

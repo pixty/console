@@ -8,6 +8,7 @@ import (
 	"github.com/pixty/console/rapi"
 	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/fpcp_serv"
+	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
 )
 
@@ -37,7 +38,7 @@ func main() {
 	imgService := service.NewDefaultImageService()
 	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSize())
 	fpcp := fpcp_serv.NewFPCPServer()
-	scnProc := service.NewSceneProcessor()
+	scnProc := scene.NewSceneProcessor()
 
 	injector.RegisterMany(cc, restApi, fpcp)
 	injector.RegisterOne(imgService, "imgService")
