@@ -104,8 +104,8 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 }
 
 // This function parses CL args and apply them on top of ConsoleConfig instance
-func (cc0 *ConsoleConfig) ParseCLArgs() bool {
-	cc := &ConsoleConfig{logger: cc0.logger}
+func (ccFinal *ConsoleConfig) ParseCLArgs() bool {
+	cc := &ConsoleConfig{logger: ccFinal.logger}
 
 	var help bool
 	var cfgFile string
@@ -118,10 +118,16 @@ func (cc0 *ConsoleConfig) ParseCLArgs() bool {
 	flag.BoolVar(&cc.DebugMode, "debug", false, "Run in debug mode")
 
 	flag.Parse()
-	ccf := &ConsoleConfig{logger: cc0.logger}
+
+	// read config from file, if provided
+	ccf := &ConsoleConfig{logger: ccFinal.logger}
 	ccf.readFromFile(cfgFile)
+
+	// overwrite the config file settings by command-line params
 	ccf.apply(cc)
-	cc0.apply(ccf)
+
+	// Apply finally to the original config
+	ccFinal.apply(ccf)
 
 	if help {
 		flag.Usage()
@@ -150,7 +156,7 @@ func (cc *ConsoleConfig) readFromFile(filename string) {
 	cc.apply(cfg)
 }
 
-func (cc *ConsoleConfig) GetLbsMaxSize() int64 {
+func (cc *ConsoleConfig) GetLbsMaxSizeBytes() int64 {
 	res, err := gorivets.ParseInt64(cc.LbsMaxSize, 1000000, math.MaxInt64, 1000000000)
 	if err != nil {
 		cc.logger.Fatal("Could not parse LBS size=", cc.LbsMaxSize, " panicing!")

@@ -37,7 +37,7 @@ func main() {
 	restApi := rapi.NewAPI()
 	msqlPersist := model.NewMysqlPersister()
 	imgService := service.NewDefaultImageService()
-	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSize())
+	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSizeBytes())
 	fpcp := fpcp_serv.NewFPCPServer()
 	scnProc := scene.NewSceneProcessor()
 
