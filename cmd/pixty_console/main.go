@@ -24,6 +24,7 @@ func main() {
 		log4g.SetLogLevel("pixty", log4g.DEBUG)
 		logger.Info("Running in DEBUG mode")
 	}
+	logger.Debug("Config: ", cc)
 
 	injector := inject.NewInjector(log4g.GetLogger("pixty.injector"), log4g.GetLogger("fb.injector"))
 

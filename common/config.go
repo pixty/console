@@ -1,7 +1,9 @@
 package common
 
 import (
+	"encoding/json"
 	"flag"
+	"io/ioutil"
 	"math"
 
 	"github.com/jrivets/gorivets"
@@ -40,7 +42,7 @@ type ConsoleConfig struct {
 
 	// Local File System Blob Storage
 	LbsDir     string
-	lbsMaxSize string
+	LbsMaxSize string
 
 	// HTTP images endpoint prefix
 	ImgsPrefix string
@@ -58,17 +60,57 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.GrpcFPCPSessCapacity = 10000
 	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
 	cc.LbsDir = "/tmp/lfsBlobStorage"
-	cc.lbsMaxSize = "10G"
+	cc.LbsMaxSize = "10G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	cc.ImgsTmpTTLSec = 60
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }
 
-// This function parses CL args and apply them on top of ConsoleConfig instance
-func (cc *ConsoleConfig) ParseCLArgs() bool {
-	var help bool
+func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
+	if cc1.HttpPort > 0 {
+		cc.HttpPort = cc1.HttpPort
+	}
+	if cc1.GrpcFPCPPort > 0 {
+		cc.GrpcFPCPPort = cc1.GrpcFPCPPort
+	}
+	if cc1.GrpcFPCPSessCapacity > 0 {
+		cc.GrpcFPCPSessCapacity = cc1.GrpcFPCPSessCapacity
+	}
+	if cc1.MysqlDatasource != "" {
+		cc.MysqlDatasource = cc1.MysqlDatasource
+	}
+	if cc1.LbsDir != "" {
+		cc.LbsDir = cc1.LbsDir
+	}
+	if cc1.LbsMaxSize != "" {
+		cc.LbsMaxSize = cc1.LbsMaxSize
+	}
+	if cc1.ImgsPrefix != "" {
+		cc.ImgsPrefix = cc1.ImgsPrefix
+	}
+	if cc1.ImgsTmpTTLSec != 0 {
+		cc.ImgsTmpTTLSec = cc1.ImgsTmpTTLSec
+	}
+	if cc1.logger != nil {
+		cc.logger = cc1.logger
+	}
+	if cc1.DebugMode {
+		cc.DebugMode = true
+	}
+	if cc1.HttpDebugMode {
+		cc.HttpDebugMode = true
+	}
+}
 
+// This function parses CL args and apply them on top of ConsoleConfig instance
+func (cc0 *ConsoleConfig) ParseCLArgs() bool {
+	cc := &ConsoleConfig{logger: cc0.logger}
+
+	var help bool
+	var cfgFile string
+
+	flag.StringVar(&cfgFile, "config-file", "", "The console configuration file")
 	flag.StringVar(&cc.LogConfigFN, "log-config", "", "The log4g configuration file name")
 	flag.IntVar(&cc.HttpPort, "port", cc.HttpPort, "The http port the console will listen on")
 	flag.IntVar(&cc.GrpcFPCPPort, "fpcp-port", cc.GrpcFPCPPort, "The gRPC port for serving FPCP from cameras")
@@ -76,6 +118,10 @@ func (cc *ConsoleConfig) ParseCLArgs() bool {
 	flag.BoolVar(&cc.DebugMode, "debug", false, "Run in debug mode")
 
 	flag.Parse()
+	ccf := &ConsoleConfig{logger: cc0.logger}
+	ccf.readFromFile(cfgFile)
+	ccf.apply(cc)
+	cc0.apply(ccf)
 
 	if help {
 		flag.Usage()
@@ -85,12 +131,31 @@ func (cc *ConsoleConfig) ParseCLArgs() bool {
 	return true
 }
 
-func (cc *ConsoleConfig) GetLbsMaxSize() int64 {
-	res, err := gorivets.ParseInt64(cc.lbsMaxSize, 1000000, math.MaxInt64, 1000000000)
+func (cc *ConsoleConfig) readFromFile(filename string) {
+	if filename == "" {
+		return
+	}
+	cfgData, err := ioutil.ReadFile(filename)
 	if err != nil {
-		cc.logger.Fatal("Could not parse LBS size=", cc.lbsMaxSize, " panicing!")
+		cc.logger.Warn("Could not read configuration file ", filename, ", err=", err)
+		return
+	}
+
+	cfg := &ConsoleConfig{}
+	err = json.Unmarshal(cfgData, cfg)
+	if err != nil {
+		cc.logger.Warn("Could not unmarshal data from ", filename, ", err=", err)
+		return
+	}
+	cc.apply(cfg)
+}
+
+func (cc *ConsoleConfig) GetLbsMaxSize() int64 {
+	res, err := gorivets.ParseInt64(cc.LbsMaxSize, 1000000, math.MaxInt64, 1000000000)
+	if err != nil {
+		cc.logger.Fatal("Could not parse LBS size=", cc.LbsMaxSize, " panicing!")
 		panic(err)
 	}
-	cc.logger.Info("Max LBS Size is ", cc.lbsMaxSize, "(", res, " bytes)")
+	cc.logger.Info("Max LBS Size is ", cc.LbsMaxSize, "(", res, " bytes)")
 	return res
 }

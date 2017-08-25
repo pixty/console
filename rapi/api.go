@@ -1,10 +1,7 @@
 package rapi
 
 import (
-	"bytes"
 	"errors"
-	"image"
-	"image/png"
 	"io"
 	"math"
 	"net/http"
@@ -58,6 +55,7 @@ func (a *api) DiPostConstruct() {
 
 	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
 	a.endpoint("GET", "/cameras/:camId/timeline", func(c *gin.Context) { a.h_GET_cameras_timeline(c, c.Param("camId")) })
+	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
 	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
@@ -67,7 +65,6 @@ func (a *api) DiPostConstruct() {
 	//	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
 	//	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
 	//	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
-	//	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
 
 }
 
@@ -141,7 +138,7 @@ func (a *api) imgURL(imgId string) string {
 	if imgId == "" {
 		return ""
 	}
-	return a.Config.ImgsPrefix + imgId
+	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
 }
 
 func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
@@ -336,26 +333,6 @@ func (a *api) h_GET_pictures_pic(c *gin.Context, picId common.Id) {
 	//	c.JSON(http.StatusOK, pi)
 }
 
-// GET /pictures/:picId/download
-func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
-	a.logger.Debug("GET /pictures/", picId, "/download")
-
-	r := c.Request
-	w := c.Writer
-	imgD := a.ImgService.Read(picId, false)
-	if imgD == nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	fn := imgD.FileName
-	rd := imgD.Reader.(io.ReadSeeker)
-	ts := imgD.Timestamp
-
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
-
-	http.ServeContent(w, r, fn, ts.ToTime(), rd)
-}
-
 // GET /images/:imgName
 // the image name is encoded like <id>[_l_t_r_b].png
 //
@@ -366,49 +343,22 @@ func (a *api) h_GET_pictures_pic_download(c *gin.Context, picId common.Id) {
 func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
 	a.logger.Debug("GET /images/", imgName)
 
-	imgId, rect, err := parseImgName(imgName)
-	if err != nil {
-		a.logger.Warn("Cannot parse image name err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+	imgId, err := common.ImgParseFileNameNotDeep(imgName)
+	if a.errorResponse(c, err) {
 		return
 	}
 
 	w := c.Writer
-	imgD := a.ImgService.Read(imgId, false)
+	imgD := a.ImgService.Read(common.Id(imgId), false)
 	if imgD == nil {
-		a.logger.Warn("Could not find image with id=", imgId, ", err=", err)
+		a.logger.Debug("Could not find image with id=", imgId, ", err=", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
 	r := c.Request
 	rd := imgD.Reader.(io.ReadSeeker)
-
-	if rect != nil {
-		a.logger.Debug("Converting image ", imgId, " to ", *rect)
-		img, err := png.Decode(imgD.Reader)
-		if err != nil {
-			a.logger.Warn("Cannot decode png image err=", err)
-			c.JSON(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		si := img.(interface {
-			SubImage(r image.Rectangle) image.Image
-		}).SubImage(*rect)
-
-		bb := bytes.NewBuffer([]byte{})
-		err = png.Encode(bb, si)
-		if err != nil {
-			a.logger.Warn("Cannot encode png image err=", err)
-			c.JSON(http.StatusBadRequest, err.Error())
-			return
-		}
-		rd = bytes.NewReader(bb.Bytes())
-		a.logger.Debug("Done with converting image ", imgId)
-	}
-
-	fn := imgName
+	fn := imgD.FileName
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
 	http.ServeContent(w, r, fn, imgD.Timestamp.ToTime(), rd)
 }

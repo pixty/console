@@ -46,6 +46,13 @@ func ImgParseFileName(imgFileName string) (string, *image.Rectangle, error) {
 	return ImgParseId(id)
 }
 
+func ImgParseFileNameNotDeep(imgFileName string) (string, error) {
+	if !strings.HasSuffix(imgFileName, ".png") {
+		return "", errors.New("Expecting .png filename, but received " + imgFileName)
+	}
+	return strings.TrimSuffix(imgFileName, ".png"), nil
+}
+
 func ImgParseId(id string) (string, *image.Rectangle, error) {
 	var nilId string
 	parts := strings.Split(id, "_")
@@ -74,5 +81,5 @@ func ImgParseId(id string) (string, *image.Rectangle, error) {
 		return nilId, nil, err
 	}
 	rect := image.Rect(x0, y0, x1, y1)
-	return parts[0], &rect, nil
+	return id, &rect, nil
 }
