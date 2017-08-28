@@ -14,21 +14,29 @@ type (
 	}
 
 	OrgMetaInfo struct {
+		Id        int64  `json:"Id"`
 		FieldName string `json:"fieldName"`
 		FieldType string `json:"fieldType"`
 	}
 
 	Camera struct {
-		Id    common.Id `json:"id"`
-		OrgId common.Id `json:"orgId"`
+		Id    string `json:"id"`
+		OrgId string `json:"orgId"`
 	}
 
 	Profile struct {
 		Id        int64  `json:"id"`
+		OrgId     int64  `json:"orgId"`
 		AvatarUrl string `json:"avatarUrl"`
 
 		// Key-Value pairs for the organization
-		Attributes map[string]string `json:"attributes,omitempty"`
+		Attributes []*ProfileAttribute `json:"attributes,omitempty"`
+	}
+
+	ProfileAttribute struct {
+		FieldId int64  `json:"fieldId"`
+		Name    string `json:"Name"`
+		Value   string `json:"value"`
 	}
 
 	Person struct {

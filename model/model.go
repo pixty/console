@@ -15,8 +15,8 @@ type (
 
 	// FieldInfo - describes a field of profile metadata
 	FieldInfo struct {
+		Id          int64
 		OrgId       int64
-		FieldId     int64
 		FieldType   string
 		DisplayName string
 	}
@@ -84,14 +84,17 @@ type (
 		OrgId     int64
 		PictureId string // avatar
 
-		//Meta (composit one) [displayName]Value
-		Meta map[string]string
+		//Meta (composit one)
+		Meta []*ProfileMeta
 	}
 
 	ProfileMeta struct {
 		ProfileId int64
 		FieldId   int64
 		Value     string
+
+		//Display Name can be populated for some certain ops
+		DisplayName string
 	}
 
 	// Persister is an interface which provides an access to persistent layer
@@ -112,6 +115,13 @@ type (
 		GenericPersister
 
 		FindCameraById(camId string) (*Camera, error)
+
+		// orgs
+		InsertOrg(org Organization) (int64, error)
+		GetFieldInfos(orgId int64) ([]*FieldInfo, error)
+		InsertFieldInfo(fldInfo *FieldInfo) (int64, error)
+		UpdateFiledInfo(fldInfo *FieldInfo) error
+		DeleteFieldInfo(fldInfo *FieldInfo) error
 	}
 
 	// Partitioned persister

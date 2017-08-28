@@ -5,15 +5,16 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jrivets/gorivets"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
-	"github.com/pixty/console/cors"
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
@@ -43,19 +44,24 @@ func NewAPI() *api {
 
 // =========================== PostConstructor ===============================
 func (a *api) DiPostConstruct() {
+	a.logger = log4g.GetLogger("pixty.rest")
+	a.logger.Info("HTTP Debug mode=", a.Config.HttpDebugMode)
 	if !a.Config.HttpDebugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	a.ge = gin.New()
+	if a.Config.HttpDebugMode {
+		a.logger.Info("Gin logger and gin.debug is enabled. You can set up DEBUG mode for the pixty.rest group to obtain requests dumps and more logs for the API group.")
+		a.ge.Use(gin.Logger())
+	}
+	a.ge.Use(a.PrintRequest)
 
-	a.ge.Use(cors.Default())
-	a.logger = log4g.GetLogger("pixty.rest")
 	a.logger.Info("Constructing ReST API")
 
-	a.endpoint("GET", "/ping", func(c *gin.Context) { a.h_GET_ping(c) })
-	a.endpoint("GET", "/cameras/:camId/timeline", func(c *gin.Context) { a.h_GET_cameras_timeline(c, c.Param("camId")) })
-	a.endpoint("GET", "/images/:imgName", func(c *gin.Context) { a.h_GET_images_png_download(c, c.Param("imgName")) })
+	a.ge.GET("/ping", a.h_GET_ping)
+	a.ge.GET("/cameras/:camId/timeline", a.h_GET_cameras_timeline)
+	a.ge.GET("/images/:imgName", a.h_GET_images_png_download)
 	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
@@ -80,11 +86,18 @@ func (a *api) Run() {
 	graceful.Run(":"+port, 100*time.Millisecond, a.ge)
 }
 
+func (a *api) PrintRequest(c *gin.Context) {
+	if a.logger.GetLevel() >= log4g.DEBUG {
+		r, _ := httputil.DumpRequest(c.Request, true)
+		a.logger.Debug("\n>>> REQUEST\n", string(r), "\n<<< REQUEST")
+	}
+}
+
 // =============================== Handlers ==================================
 // GET /ping
 func (a *api) h_GET_ping(c *gin.Context) {
 	a.logger.Debug("GET /ping")
-	c.String(http.StatusOK, "pong")
+	c.String(http.StatusOK, "pong URL conversion is "+composeURI(c.Request, ""))
 }
 
 func parseInt64Param(prmName string, vals url.Values) (int64, error) {
@@ -99,7 +112,8 @@ func parseInt64Param(prmName string, vals url.Values) (int64, error) {
 // of persons sorted in descending order. The timeline object also has reference
 // to the last frame for the requested camera
 // GET /cameras/:camId/timeline?limit=20&maxTime=12341234
-func (a *api) h_GET_cameras_timeline(c *gin.Context, camId string) {
+func (a *api) h_GET_cameras_timeline(c *gin.Context) {
+	camId := c.Param("camId")
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
 	// Parse query
@@ -201,9 +215,29 @@ func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*P
 func (a *api) profileToProfile(prf *model.Profile) *Profile {
 	p := new(Profile)
 	p.Id = prf.Id
+	p.OrgId = prf.OrgId
 	p.AvatarUrl = a.imgURL(prf.PictureId)
-	p.Attributes = prf.Meta
+	p.Attributes = a.metasToAttributes(prf.Meta)
 	return p
+}
+
+func (a *api) metasToAttributes(pms []*model.ProfileMeta) []*ProfileAttribute {
+	if pms == nil {
+		return nil
+	}
+	res := make([]*ProfileAttribute, len(pms))
+	for i, pm := range pms {
+		res[i] = a.metaToAttribute(pm)
+	}
+	return res
+}
+
+func (a *api) metaToAttribute(prf *model.ProfileMeta) *ProfileAttribute {
+	pa := new(ProfileAttribute)
+	pa.FieldId = prf.FieldId
+	pa.Name = prf.DisplayName
+	pa.Value = prf.Value
+	return pa
 }
 
 func (a *api) facesToPictureInfos(faces []*model.Face) []*PictureInfo {
@@ -228,6 +262,81 @@ func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {
 	tss := ts.ToISO8601Time()
 	pi.Timestamp = &tss
 	return pi
+}
+
+// POST /orgs - superadmin(sa)
+func (a *api) h_POST_orgs(c *gin.Context) {
+	a.logger.Debug("GET /orgs")
+	var org Organization
+	if a.errorResponse(c, c.Bind(&org)) {
+		return
+	}
+
+}
+
+// GET /orgs/:orgId - owner (o), sa
+func (a *api) h_GET_orgs_orgId(c *gin.Context) {
+
+}
+
+// PUT /orgs/:orgId - o, sa
+func (a *api) h_PUT_orgs_orgId(c *gin.Context) {
+
+}
+
+// POST /profiles - o, u, sa
+func (a *api) h_POST_profiles(c *gin.Context) {
+
+}
+
+// GET /profiles - o, u, sa
+func (a *api) h_GET_profiles(c *gin.Context) {
+
+}
+
+// GET /profiles/:profileId - o, u, sa
+func (a *api) h_GET_profiles_prfId(c *gin.Context) {
+
+}
+
+// POST /profiles/:profId/persons/:persId - o, u, sa
+func (a *api) h_POST_profiles_prfId_persons_persId(c *gin.Context) {
+
+}
+
+// DELETE /profiles/:profId/persons/:persId
+func (a *api) h_DELETE_profiles_prfId_persons_persId(c *gin.Context) {
+
+}
+
+// GET /persons
+func (a *api) h_GET_persons(c *gin.Context) {
+
+}
+
+// GET /persons/:persId
+func (a *api) h_GET_persons_persId(c *gin.Context) {
+
+}
+
+// GET /cameras
+func (a *api) h_GET_cameras(c *gin.Context) {
+
+}
+
+// POST /cameras
+func (a *api) h_POST_cameras(c *gin.Context) {
+
+}
+
+// GET /cameras/:camId
+func (a *api) h_GET_cameras_camId(c *gin.Context) {
+
+}
+
+// DELETE /cameras/:camId
+func (a *api) h_DELETE_cameras_camId(c *gin.Context) {
+
 }
 
 // GET /profiles/:profileId
@@ -340,7 +449,8 @@ func (a *api) h_GET_pictures_pic(c *gin.Context, picId common.Id) {
 // asbasdfasdf-234.png	 - no region
 // 1234987239487.png	 - no region
 // 12341234_0_3_200_300.png - get the region(l:0, t:3, r:200, b:300) for 12341234.png
-func (a *api) h_GET_images_png_download(c *gin.Context, imgName string) {
+func (a *api) h_GET_images_png_download(c *gin.Context) {
+	imgName := c.Param("imgName")
 	a.logger.Debug("GET /images/", imgName)
 
 	imgId, err := common.ImgParseFileNameNotDeep(imgName)
@@ -379,33 +489,42 @@ func (a *api) errorResponse(c *gin.Context, err error) bool {
 	return true
 }
 
-func (a *api) endpoint(method string, relativePath string, handler gin.HandlerFunc) {
-	a.logger.Info("Registering endpoint: ", method, " ", relativePath, " funcs: ", handler)
-	switch method {
-	case "GET":
-		a.ge.GET(relativePath, handler)
-	case "POST":
-		a.ge.POST(relativePath, handler)
-	default:
-		a.logger.Error("Unknonwn method ", method)
-		panic("cannot register endpoint: " + method + " " + relativePath)
-	}
-}
-
-//func (a *api) newRequestCtx(c *gin.Context) *RequestCtx {
-//	rctx := newRequestCtx(a, a.newContext())
-
-//	// TODO Fix me later. we don't support org so far, so use the fake
-//	rctx.orgId = "org-1234"
-//	return rctx
-//}
-
 func composeURI(r *http.Request, id string) string {
 	var resURL string
 	if r.URL.IsAbs() {
 		resURL = path.Join(r.URL.String(), id)
 	} else {
-		resURL = path.Join(r.Host, r.URL.String(), id)
+		resURL = resolveScheme(r) + "://" + path.Join(resolveHost(r), r.URL.String(), id)
 	}
 	return resURL
+}
+
+func resolveScheme(r *http.Request) string {
+	switch {
+	case r.Header.Get("X-Forwarded-Proto") == "https":
+		return "https"
+	case r.URL.Scheme == "https":
+		return "https"
+	case r.TLS != nil:
+		return "https"
+	case strings.HasPrefix(r.Proto, "HTTPS"):
+		return "https"
+	default:
+		return "http"
+	}
+}
+
+func resolveHost(r *http.Request) (host string) {
+	switch {
+	case r.Header.Get("X-Forwarded-For") != "":
+		return r.Header.Get("X-Forwarded-For")
+	case r.Header.Get("X-Host") != "":
+		return r.Header.Get("X-Host")
+	case r.Host != "":
+		return r.Host
+	case r.URL.Host != "":
+		return r.URL.Host
+	default:
+		return ""
+	}
 }

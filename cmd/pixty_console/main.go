@@ -24,7 +24,7 @@ func main() {
 		log4g.SetLogLevel("pixty", log4g.DEBUG)
 		logger.Info("Running in DEBUG mode")
 	}
-	logger.Debug("Config: ", cc)
+	logger.Info("Config, eventually is ", cc.NiceString())
 
 	injector := inject.NewInjector(log4g.GetLogger("pixty.injector"), log4g.GetLogger("fb.injector"))
 
@@ -40,8 +40,9 @@ func main() {
 	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSizeBytes())
 	fpcp := fpcp_serv.NewFPCPServer()
 	scnProc := scene.NewSceneProcessor()
+	orgServ := service.NewOrgService()
 
-	injector.RegisterMany(cc, restApi, fpcp)
+	injector.RegisterMany(cc, restApi, fpcp, orgServ)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(msqlPersist, "persister")

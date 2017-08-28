@@ -192,7 +192,9 @@ func (lbs *LfsBlobStorage) Delete(objId common.Id) error {
 	}
 
 	delete(lbs.objects, objId)
-	os.Remove(fileName)
+	go func() {
+		os.Remove(fileName)
+	}()
 	lbs.lru.DeleteWithCallback(objId, false)
 	return nil
 }
@@ -306,12 +308,7 @@ func (lbs *LfsBlobStorage) saveObjects(checkTime bool) {
 	}
 
 	defer file.Close()
-
-	if checkTime {
-		lbs.logger.Debug("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
-	} else {
-		lbs.logger.Info("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
-	}
+	lbs.logger.Debug("Saving ", len(lbs.objects), " objects to ", lbs.metaFN)
 
 	encoder := json.NewEncoder(file)
 	err = encoder.Encode(lbs.objects)

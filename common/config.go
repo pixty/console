@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"math"
 
@@ -52,6 +53,18 @@ type ConsoleConfig struct {
 	logger log4g.Logger
 }
 
+func (cc *ConsoleConfig) NiceString() string {
+	return fmt.Sprint("{\n\tLogConfigFN=", cc.LogConfigFN, ",\n\tHttpPort=", cc.HttpPort, ",\n\tHttpDebugMode=", cc.HttpDebugMode,
+		",\n\tGrpcFPCPPort=", cc.GrpcFPCPPort, ",\n\tGrpcFPCPSessCapacity=", cc.GrpcFPCPSessCapacity, ",\n\tDebugMode=",
+		cc.DebugMode, ",\n\tMysqlDatasource=", cc.MysqlDatasource, ",\n\tLbsDir=", cc.LbsDir, ",\n\tLbsMaxSize=", cc.LbsMaxSize,
+		"(", cc.GetLbsMaxSizeBytes(), "bytes)", ",\n\tImgsPrefix=", cc.ImgsPrefix, ",\n\tImgsTmpTTLSec=", cc.ImgsTmpTTLSec, "\n}")
+}
+
+func (cc *ConsoleConfig) String() string {
+	return fmt.Sprint("ConsoleConfig: {HttpDebugMode=", cc.HttpDebugMode, ", DebugMode=",
+		cc.DebugMode, "}")
+}
+
 // Set up default config values
 func NewConsoleConfig() *ConsoleConfig {
 	cc := &ConsoleConfig{}
@@ -59,8 +72,8 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.GrpcFPCPPort = 50051
 	cc.GrpcFPCPSessCapacity = 10000
 	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
-	cc.LbsDir = "/tmp/lfsBlobStorage"
-	cc.LbsMaxSize = "10G"
+	cc.LbsDir = "/opt/pixty/store"
+	cc.LbsMaxSize = "20G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	cc.ImgsTmpTTLSec = 60
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
@@ -110,12 +123,13 @@ func (ccFinal *ConsoleConfig) ParseCLArgs() bool {
 	var help bool
 	var cfgFile string
 
-	flag.StringVar(&cfgFile, "config-file", "", "The console configuration file")
+	flag.StringVar(&cfgFile, "config-file", "./pixty_console.json", "The console configuration file")
 	flag.StringVar(&cc.LogConfigFN, "log-config", "", "The log4g configuration file name")
 	flag.IntVar(&cc.HttpPort, "port", cc.HttpPort, "The http port the console will listen on")
 	flag.IntVar(&cc.GrpcFPCPPort, "fpcp-port", cc.GrpcFPCPPort, "The gRPC port for serving FPCP from cameras")
 	flag.BoolVar(&help, "help", false, "Prints the usage")
 	flag.BoolVar(&cc.DebugMode, "debug", false, "Run in debug mode")
+	flag.BoolVar(&cc.HttpDebugMode, "http-debug", false, "Run in http-debug mode")
 
 	flag.Parse()
 
@@ -153,6 +167,7 @@ func (cc *ConsoleConfig) readFromFile(filename string) {
 		cc.logger.Warn("Could not unmarshal data from ", filename, ", err=", err)
 		return
 	}
+	cc.logger.Info("Configuration read from ", filename)
 	cc.apply(cfg)
 }
 
@@ -162,6 +177,5 @@ func (cc *ConsoleConfig) GetLbsMaxSizeBytes() int64 {
 		cc.logger.Fatal("Could not parse LBS size=", cc.LbsMaxSize, " panicing!")
 		panic(err)
 	}
-	cc.logger.Info("Max LBS Size is ", cc.LbsMaxSize, "(", res, " bytes)")
 	return res
 }

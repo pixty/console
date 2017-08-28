@@ -1,0 +1,13 @@
+{
+	"LogConfigFN":"",
+	"HttpPort":8080,
+	"HttpDebugMode":false,
+	"GrpcFPCPPort":50051,
+	"GrpcFPCPSessCapacity":10000,
+	"DebugMode":true,
+	"MysqlDatasource":"pixty@/pixty?charset=utf8",
+	"LbsDir":"",
+	"LbsMaxSize":"20g",
+	"ImgsPrefix": "",
+	"ImgsTmpTTLSec": 60
+}

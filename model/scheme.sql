@@ -20,13 +20,16 @@ CREATE TABLE IF NOT EXISTS `organization` (
 	UNIQUE `id_idx` USING BTREE (id)
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
+#Field Info. Please pay attention that display_name is case INSENSITIVE 'aaa' == 'AaA'
 CREATE TABLE IF NOT EXISTS `field_info` (
+	`id`                     BIGINT(20)       NOT NULL AUTO_INCREMENT,
 	`org_id`                 BIGINT(20) NOT NULL,
-	`field_id`               BIGINT(20) NOT NULL,
 	`field_type`             VARCHAR(50) NOT NULL,
 	`display_name`           VARCHAR(255) NOT NULL,
-	UNIQUE `org_id_field_id_idx` USING BTREE (org_id, field_id)
-) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+	PRIMARY KEY (`id`),
+	UNIQUE `id_idx` USING BTREE (id),
+	UNIQUE `org_id_display_name_idx` USING BTREE (org_id, display_name)
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `user` (
 	`id`                     BIGINT(20)      NOT NULL AUTO_INCREMENT,

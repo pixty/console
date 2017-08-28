@@ -200,6 +200,92 @@ func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
 	return nil, nil
 }
 
+func (mmp *msql_main_persister) InsertOrg(org Organization) (int64, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("InsertOrg(): Could not get DB err=", err)
+		return -1, err
+	}
+
+	res, err := db.Exec("INSERT INTO organization(name) VALUES (?)", org.Name)
+	if err != nil {
+		mmp.logger.Warn("InsertOrg: Could not insert new organization ", org, ", got the err=", err)
+		return -1, err
+	}
+
+	return res.LastInsertId()
+}
+
+func (mmp *msql_main_persister) GetFieldInfos(orgId int64) ([]*FieldInfo, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("GetFieldInfos(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	rows, err := db.Query("SELECT id, field_type, display_name FROM field_info WHERE org_id=?", orgId)
+	if err != nil {
+		mmp.logger.Warn("GetFieldInfos: Could not select field infos by orgId=", orgId, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make([]*FieldInfo, 0, 3)
+	for rows.Next() {
+		fi := new(FieldInfo)
+		rows.Scan(&fi.Id, &fi.FieldType, &fi.DisplayName)
+		fi.OrgId = orgId
+		res = append(res, fi)
+	}
+	return res, nil
+}
+
+func (mmp *msql_main_persister) InsertFieldInfo(fldInfo *FieldInfo) (int64, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("InsertFieldInfo(): Could not get DB err=", err)
+		return -1, err
+	}
+
+	res, err := db.Exec("INSERT INTO field_info(org_id, field_type, display_name) VALUES (?, ?, ?)", fldInfo.OrgId, fldInfo.FieldType, fldInfo.DisplayName)
+	if err != nil {
+		mmp.logger.Warn("InsertFieldInfo: Could not insert new fieldInfo ", fldInfo, ", got the err=", err)
+		return -1, err
+	}
+
+	return res.LastInsertId()
+}
+
+func (mmp *msql_main_persister) UpdateFiledInfo(fldInfo *FieldInfo) error {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("UpdateFiledInfo(): Could not get DB err=", err)
+		return err
+	}
+
+	_, err = db.Exec("UPDATE field_info SET display_name=? WHERE id=?", fldInfo.DisplayName, fldInfo.Id)
+	if err != nil {
+		mmp.logger.Warn("UpdateFiledInfo: Could not update fieldInfo ", fldInfo, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
+func (mmp *msql_main_persister) DeleteFieldInfo(fldInfo *FieldInfo) error {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("DeleteFieldInfo(): Could not get DB err=", err)
+		return err
+	}
+
+	_, err = db.Exec("DELETE FROM field_info WHERE id=?", fldInfo.Id)
+	if err != nil {
+		mmp.logger.Warn("DeleteFieldInfo: Could not delete fieldInfo ", fldInfo, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
 // ========================= msql_part_persister =============================
 func (mpp *msql_part_persister) ExecQuery(sqlQuery string, params ...interface{}) error {
 	return mpp.dbc.exec(sqlQuery)
@@ -556,10 +642,12 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 
 	mpp.logger.Debug("GetProfiles: Requesting profiles by ", prQuery)
 	var q string
+	where := false
 	if prQuery.NoMeta {
 		q = "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
 	} else {
-		q = "SELECT (SELECT display_name FROM field_info WHERE org_id=p.org_id AND field_id=pm.field_id), pm.value, p.id, p.org_id, p.picture_id FROM profile AS p, profile_meta AS pm "
+		q = "SELECT (SELECT display_name FROM field_info WHERE org_id=p.org_id AND id=pm.field_id), pm.field_id, pm.value, p.id, p.org_id, p.picture_id FROM profile AS p, profile_meta AS pm WHERE p.id=pm.profile_id "
+		where = true
 	}
 
 	whereParams := []interface{}{}
@@ -569,7 +657,13 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 			return []*Profile{}, nil
 		}
 
-		q += "WHERE p.id IN("
+		if where {
+			q += " AND "
+		} else {
+			q += " WHERE "
+		}
+		where = true
+		q += "p.id IN("
 		for i, pid := range prQuery.ProfileIds {
 			if i > 0 {
 				q += ", ?"
@@ -606,8 +700,8 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 	pMap := make(map[int64]*Profile)
 	for rows.Next() {
 		var fn, v, picId string
-		var pid, orgId int64
-		err := rows.Scan(&fn, &v, &pid, &orgId, &picId)
+		var pid, fldId, orgId int64
+		err := rows.Scan(&fn, &fldId, &v, &pid, &orgId, &picId)
 		if err != nil {
 			mpp.logger.Warn("GetProfiles(): could not scan result(with Meta!) err=", err)
 			return nil, err
@@ -619,10 +713,14 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 			p.Id = pid
 			p.PictureId = picId
 			p.OrgId = orgId
-			p.Meta = make(map[string]string)
+			p.Meta = make([]*ProfileMeta, 0, 2)
 			pMap[pid] = p
 		}
-		p.Meta[fn] = v
+		pm := new(ProfileMeta)
+		pm.FieldId = fldId
+		pm.Value = v
+		pm.ProfileId = pid
+		pm.DisplayName = fn
 	}
 
 	res := make([]*Profile, 0, len(pMap))
