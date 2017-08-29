@@ -9,12 +9,15 @@ type (
 	PersonStatus string
 
 	Organization struct {
-		Id   common.Id     `json:"id"`
-		Meta []OrgMetaInfo `json:"metaInfo"`
+		Id   int64          `json:"id"`
+		Name string         `json:"name"`
+		Meta OrgMetaInfoArr `json:"metaInfo"`
 	}
 
+	OrgMetaInfoArr []*OrgMetaInfo
+
 	OrgMetaInfo struct {
-		Id        int64  `json:"Id"`
+		Id        int64  `json:"id"`
 		FieldName string `json:"fieldName"`
 		FieldType string `json:"fieldType"`
 	}

@@ -17,8 +17,9 @@ CREATE TABLE IF NOT EXISTS `organization` (
 	`id`                     BIGINT(20)       NOT NULL AUTO_INCREMENT,
 	`name`                   VARCHAR(255)     DEFAULT NULL,
 	PRIMARY KEY (`id`),
-	UNIQUE `id_idx` USING BTREE (id)
-) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+	UNIQUE `id_idx` USING BTREE (id),
+	UNIQUE `name_idx` USING BTREE (name)
+) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 #Field Info. Please pay attention that display_name is case INSENSITIVE 'aaa' == 'AaA'
 CREATE TABLE IF NOT EXISTS `field_info` (

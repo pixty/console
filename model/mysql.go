@@ -200,7 +200,7 @@ func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
 	return nil, nil
 }
 
-func (mmp *msql_main_persister) InsertOrg(org Organization) (int64, error) {
+func (mmp *msql_main_persister) InsertOrg(org *Organization) (int64, error) {
 	db, err := mmp.dbc.getDb()
 	if err != nil {
 		mmp.logger.Warn("InsertOrg(): Could not get DB err=", err)
@@ -214,6 +214,54 @@ func (mmp *msql_main_persister) InsertOrg(org Organization) (int64, error) {
 	}
 
 	return res.LastInsertId()
+}
+
+func (mmp *msql_main_persister) GetOrg(orgId int64) (*Organization, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("GetOrg(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	rows, err := db.Query("SELECT name FROM organization WHERE id=?", orgId)
+	if err != nil {
+		mmp.logger.Warn("GetOrg: Could not get organization by orgId=", orgId, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		org := new(Organization)
+		org.Id = orgId
+		rows.Scan(&org.Name)
+		return org, nil
+	}
+
+	mmp.logger.Warn("GetOrg: No organization by orgId=", orgId)
+	return nil, common.NewError(common.ERR_NOT_FOUND, "No org for orgId="+strconv.FormatInt(orgId, 10))
+}
+
+func (mmp *msql_main_persister) GetFieldInfo(fldId int64) (*FieldInfo, error) {
+	db, err := mmp.dbc.getDb()
+	if err != nil {
+		mmp.logger.Warn("GetFieldInfo(): Could not get DB err=", err)
+		return nil, err
+	}
+
+	rows, err := db.Query("SELECT id, org_id, field_type, display_name FROM field_info WHERE id=?", fldId)
+	if err != nil {
+		mmp.logger.Warn("GetFieldInfo(): Could not select field info by fldId=", fldId, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		fi := new(FieldInfo)
+		rows.Scan(&fi.Id, &fi.OrgId, &fi.FieldType, &fi.DisplayName)
+		return fi, nil
+	}
+
+	mmp.logger.Warn("GetOrg: No field by fldId=", fldId)
+	return nil, common.NewError(common.ERR_NOT_FOUND, "No field info by fldId="+strconv.FormatInt(fldId, 10))
 }
 
 func (mmp *msql_main_persister) GetFieldInfos(orgId int64) ([]*FieldInfo, error) {
@@ -240,20 +288,36 @@ func (mmp *msql_main_persister) GetFieldInfos(orgId int64) ([]*FieldInfo, error)
 	return res, nil
 }
 
-func (mmp *msql_main_persister) InsertFieldInfo(fldInfo *FieldInfo) (int64, error) {
+func (mmp *msql_main_persister) InsertFieldInfos(fldInfos []*FieldInfo) error {
+	if fldInfos == nil || len(fldInfos) == 0 {
+		mmp.logger.Warn("InsertFieldInfos(): got an empty list, adds nothing")
+		return nil
+	}
 	db, err := mmp.dbc.getDb()
 	if err != nil {
-		mmp.logger.Warn("InsertFieldInfo(): Could not get DB err=", err)
-		return -1, err
+		mmp.logger.Warn("InsertFieldInfos(): Could not get DB err=", err)
+		return err
 	}
 
-	res, err := db.Exec("INSERT INTO field_info(org_id, field_type, display_name) VALUES (?, ?, ?)", fldInfo.OrgId, fldInfo.FieldType, fldInfo.DisplayName)
+	q := "INSERT INTO field_info(org_id, field_type, display_name) VALUES "
+	params := make([]interface{}, 0, len(fldInfos)*3)
+	for i, fi := range fldInfos {
+		if i > 0 {
+			q += ", (?, ?, ?)"
+		} else {
+			q += " (?, ?, ?)"
+		}
+		params = append(params, fi.OrgId, fi.FieldType, fi.DisplayName)
+	}
+
+	mmp.logger.Debug("InsertFieldInfos: Inserting q=", q, ", params=", params)
+	_, err = db.Exec(q, params...)
 	if err != nil {
-		mmp.logger.Warn("InsertFieldInfo: Could not insert new fieldInfo ", fldInfo, ", got the err=", err)
-		return -1, err
+		mmp.logger.Warn("InsertFieldInfos: Could not insert new fieldInfos ", fldInfos, ", got the err=", err)
+		return err
 	}
 
-	return res.LastInsertId()
+	return nil
 }
 
 func (mmp *msql_main_persister) UpdateFiledInfo(fldInfo *FieldInfo) error {

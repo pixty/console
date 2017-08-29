@@ -117,9 +117,11 @@ type (
 		FindCameraById(camId string) (*Camera, error)
 
 		// orgs
-		InsertOrg(org Organization) (int64, error)
+		InsertOrg(org *Organization) (int64, error)
+		GetOrg(orgId int64) (*Organization, error)
+		GetFieldInfo(fldId int64) (*FieldInfo, error)
 		GetFieldInfos(orgId int64) ([]*FieldInfo, error)
-		InsertFieldInfo(fldInfo *FieldInfo) (int64, error)
+		InsertFieldInfos(fldInfo []*FieldInfo) error
 		UpdateFiledInfo(fldInfo *FieldInfo) error
 		DeleteFieldInfo(fldInfo *FieldInfo) error
 	}

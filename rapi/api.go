@@ -16,6 +16,7 @@ import (
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/model"
+	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
 	"gopkg.in/gin-gonic/gin.v1"
@@ -24,11 +25,11 @@ import (
 
 type api struct {
 	ge           *gin.Engine
-	Config       *common.ConsoleConfig `inject:""`
-	ImgService   common.ImageService   `inject:"imgService"`
-	ScnProcessor *scene.SceneProcessor `inject:"scnProcessor"`
-	MainCtx      context.Context       `inject:"mainCtx"`
-	Persister    model.Persister       `inject:"persister"`
+	Config       *common.ConsoleConfig  `inject:""`
+	ImgService   common.ImageService    `inject:"imgService"`
+	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
+	MainCtx      context.Context        `inject:"mainCtx"`
+	Dc           service.DataController `inject:""`
 	logger       log4g.Logger
 }
 
@@ -62,6 +63,13 @@ func (a *api) DiPostConstruct() {
 	a.ge.GET("/ping", a.h_GET_ping)
 	a.ge.GET("/cameras/:camId/timeline", a.h_GET_cameras_timeline)
 	a.ge.GET("/images/:imgName", a.h_GET_images_png_download)
+	a.ge.POST("/orgs", a.h_POST_orgs)
+	a.ge.GET("/orgs/:orgId", a.h_GET_orgs_orgId)
+	a.ge.POST("/orgs/:orgId/fields", a.h_POST_orgs_orgId_fields)
+	a.ge.GET("/orgs/:orgId/fields", a.h_GET_orgs_orgId_fields)
+	a.ge.PUT("/orgs/:orgId/fields/:fldId", a.h_PUT_orgs_orgId_fields_fldId)
+	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
+
 	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
 	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
@@ -74,38 +82,11 @@ func (a *api) DiPostConstruct() {
 
 }
 
-func (a *api) String() string {
-	return "api: {}"
-}
-
-// Will block invoker until an error happens
-// If the application is interrupted by SIGINT, it will complete gracefully and return
-func (a *api) Run() {
-	port := strconv.FormatInt(int64(a.Config.HttpPort), 10)
-	a.logger.Info("Running API on ", port)
-	graceful.Run(":"+port, 100*time.Millisecond, a.ge)
-}
-
-func (a *api) PrintRequest(c *gin.Context) {
-	if a.logger.GetLevel() >= log4g.DEBUG {
-		r, _ := httputil.DumpRequest(c.Request, true)
-		a.logger.Debug("\n>>> REQUEST\n", string(r), "\n<<< REQUEST")
-	}
-}
-
 // =============================== Handlers ==================================
 // GET /ping
 func (a *api) h_GET_ping(c *gin.Context) {
 	a.logger.Debug("GET /ping")
 	c.String(http.StatusOK, "pong URL conversion is "+composeURI(c.Request, ""))
-}
-
-func parseInt64Param(prmName string, vals url.Values) (int64, error) {
-	v := vals[prmName]
-	if v == nil || len(v) == 0 {
-		return 0, errors.New("Param " + prmName + " not found.")
-	}
-	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
 }
 
 // Returns timeline object for the camera. The timeline object contains list
@@ -118,7 +99,7 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 
 	// Parse query
 	q := c.Request.URL.Query()
-	limit, err := parseInt64Param("limit", q)
+	limit, err := parseInt64QueryParam("limit", q)
 	if err != nil {
 		limit = cScnPersonsDefLimit
 		a.logger.Debug("h_GET_cameras_timeline: Limit is not provided or wrong, err=", err, " set it to ", cScnPersonsDefLimit)
@@ -134,7 +115,7 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 		limit = cScnPersonsMaxLimit
 	}
 
-	maxTime, err := parseInt64Param("maxTime", q)
+	maxTime, err := parseInt64QueryParam("maxTime", q)
 	if err != nil {
 		a.logger.Debug("maxTime is not provided or wrong, err=", err)
 		maxTime = math.MaxInt64
@@ -148,140 +129,138 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 	c.JSON(http.StatusOK, a.toSceneTimeline(stl))
 }
 
-func (a *api) imgURL(imgId string) string {
-	if imgId == "" {
-		return ""
-	}
-	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
-}
-
-func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
-	prfMap := a.profilesToProfiles(scnTl.Profiles)
-	mg2Profs := make(map[int64][]*Profile)
-	for pid, mgId := range scnTl.Prof2MGs {
-		arr, ok := mg2Profs[mgId]
-		if !ok {
-			arr = make([]*Profile, 0, 1)
-		}
-		pr, ok := prfMap[pid]
-		if ok {
-			arr = append(arr, pr)
-		}
-		mg2Profs[mgId] = arr
-	}
-
-	stl := new(SceneTimeline)
-	stl.Persons = make([]*Person, len(scnTl.Persons))
-	for i, p := range scnTl.Persons {
-		prsn := a.personToPerson(p, prfMap)
-		prsn.CamId = &scnTl.CamId
-		fcs, ok := scnTl.Faces[p.Id]
-		if ok {
-			prsn.Pictures = a.facesToPictureInfos(fcs)
-		}
-		m2p, ok := mg2Profs[p.MatchGroup]
-		if ok {
-			prsn.Matches = m2p
-		}
-		stl.Persons[i] = prsn
-	}
-
-	stl.CamId = common.Id(scnTl.CamId)
-	stl.Frame.Id = scnTl.LatestPicId
-	stl.Frame.PicURL = a.imgURL(scnTl.LatestPicId)
-
-	return stl
-}
-
-func (a *api) personToPerson(p *model.Person, profs map[int64]*Profile) *Person {
-	ps := new(Person)
-	ps.Id = p.Id
-	ps.AvatarUrl = a.imgURL(p.PictureId)
-	ps.LastSeenAt = common.Timestamp(p.LastSeenAt).ToISO8601Time()
-	if pr, ok := profs[p.ProfileId]; ok {
-		ps.Profile = pr
-	}
-	return ps
-}
-
-func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*Profile {
-	res := make(map[int64]*Profile)
-	for pid, p := range profiles {
-		res[pid] = a.profileToProfile(p)
-	}
-	return res
-}
-
-func (a *api) profileToProfile(prf *model.Profile) *Profile {
-	p := new(Profile)
-	p.Id = prf.Id
-	p.OrgId = prf.OrgId
-	p.AvatarUrl = a.imgURL(prf.PictureId)
-	p.Attributes = a.metasToAttributes(prf.Meta)
-	return p
-}
-
-func (a *api) metasToAttributes(pms []*model.ProfileMeta) []*ProfileAttribute {
-	if pms == nil {
-		return nil
-	}
-	res := make([]*ProfileAttribute, len(pms))
-	for i, pm := range pms {
-		res[i] = a.metaToAttribute(pm)
-	}
-	return res
-}
-
-func (a *api) metaToAttribute(prf *model.ProfileMeta) *ProfileAttribute {
-	pa := new(ProfileAttribute)
-	pa.FieldId = prf.FieldId
-	pa.Name = prf.DisplayName
-	pa.Value = prf.Value
-	return pa
-}
-
-func (a *api) facesToPictureInfos(faces []*model.Face) []*PictureInfo {
-	if faces == nil {
-		return []*PictureInfo{}
-	}
-	res := make([]*PictureInfo, len(faces))
-	for i, f := range faces {
-		res[i] = a.faceToPictureInfo(f)
-	}
-	return res
-}
-
-func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {
-	pi := new(PictureInfo)
-	pi.Id = face.FaceImageId
-	fUrl := a.imgURL(face.FaceImageId)
-	pi.FaceURL = &fUrl
-	pi.PicURL = a.imgURL(face.ImageId)
-	pi.Rect = &face.Rect
-	ts := common.Timestamp(face.CapturedAt)
-	tss := ts.ToISO8601Time()
-	pi.Timestamp = &tss
-	return pi
-}
-
+// Creates a new organization. List of fields will be ignored
 // POST /orgs - superadmin(sa)
 func (a *api) h_POST_orgs(c *gin.Context) {
-	a.logger.Debug("GET /orgs")
+	a.logger.Debug("POST /orgs")
 	var org Organization
 	if a.errorResponse(c, c.Bind(&org)) {
 		return
 	}
 
+	a.logger.Info("New organization ", org)
+	id, err := a.Dc.InsertOrg(a.org2morg(&org))
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	w := c.Writer
+	uri := composeURI(c.Request, strconv.FormatInt(id, 10))
+	a.logger.Info("New organization with location ", uri, " has been just created")
+	w.Header().Set("Location", uri)
+	c.Status(http.StatusCreated)
 }
 
+// Retruns full organiation object, including fields list configured
 // GET /orgs/:orgId - owner (o), sa
 func (a *api) h_GET_orgs_orgId(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("GET /orgs/", orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	org, fis, err := a.Dc.GetOrgAndFields(orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, a.morg2org(org, fis))
 }
 
-// PUT /orgs/:orgId - o, sa
-func (a *api) h_PUT_orgs_orgId(c *gin.Context) {
+// Create new field. the number of fields is limited
+// POST /orgs/:orgId/fields - owner (o), sa
+func (a *api) h_POST_orgs_orgId_fields(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("POST /orgs/", orgId, "/fields")
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	var mis OrgMetaInfoArr
+	if a.errorResponse(c, c.Bind(&mis)) {
+		return
+	}
+
+	fis := a.metaInfos2FieldInfos(mis, orgId)
+	if a.errorResponse(c, a.Dc.InsertNewFields(orgId, fis)) {
+		return
+	}
+
+	a.logger.Info("New fields were added for orgId=", orgId, " ", fis)
+	c.Status(http.StatusCreated)
+}
+
+// Retrieves list of fields only
+// GET /orgs/:orgId/fields - owner (o), sa
+func (a *api) h_GET_orgs_orgId_fields(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("GET /orgs/", orgId, "/fields")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	fis, err := a.Dc.GetFieldInfos(orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, a.fieldInfos2MetaInfos(fis))
+}
+
+// Updates the field value (only display name update is allowed)
+// PUT /orgs/:orgId/fields/:fldId - owner (o), sa
+func (a *api) h_PUT_orgs_orgId_fields_fldId(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	if a.errorResponse(c, err) {
+		return
+	}
+	fldId, err := parseInt64Param(c, "fldId")
+	a.logger.Info("PUT /orgs/", orgId, "/fields/", fldId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	mi := &OrgMetaInfo{}
+	if a.errorResponse(c, c.Bind(mi)) {
+		return
+	}
+	fi := a.metaInfo2FieldInfo(mi)
+	fi.OrgId = orgId
+
+	if a.errorResponse(c, a.Dc.UpdateFieldInfo(fi)) {
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// Delete field.
+// DELETE /orgs/:orgId/fields/:fldId - owner (o), sa
+func (a *api) h_DELETE_orgs_orgId_fields_fldId(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	if a.errorResponse(c, err) {
+		return
+	}
+	fldId, err := parseInt64Param(c, "fldId")
+	if a.errorResponse(c, err) {
+		return
+	}
+	a.logger.Info("DELETE /orgs/", orgId, "/fields/", fldId)
+
+	if a.errorResponse(c, a.Dc.DeleteFieldInfo(orgId, fldId)) {
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// ==========================
+
+// Returns authorized organization id, or error if not authenticated for an org
+func getOrgId(c *gin.Context) (int64, error) {
+	//TODO fix me
+	return 1, nil
 }
 
 // POST /profiles - o, u, sa
@@ -289,7 +268,7 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 
 }
 
-// GET /profiles - o, u, sa
+// GET /profiles - o, u, sa -vs query
 func (a *api) h_GET_profiles(c *gin.Context) {
 
 }
@@ -471,6 +450,217 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 	fn := imgD.FileName
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
 	http.ServeContent(w, r, fn, imgD.Timestamp.ToTime(), rd)
+}
+
+// ================================ Helpers ==================================
+func (a *api) String() string {
+	return "api: {}"
+}
+
+// Will block invoker until an error happens
+// If the application is interrupted by SIGINT, it will complete gracefully and return
+func (a *api) Run() {
+	port := strconv.FormatInt(int64(a.Config.HttpPort), 10)
+	a.logger.Info("Running API on ", port)
+	graceful.Run(":"+port, 100*time.Millisecond, a.ge)
+}
+
+func (a *api) PrintRequest(c *gin.Context) {
+	if a.logger.GetLevel() >= log4g.DEBUG {
+		r, _ := httputil.DumpRequest(c.Request, true)
+		a.logger.Debug("\n>>> REQUEST\n", string(r), "\n<<< REQUEST")
+	}
+}
+
+func parseInt64QueryParam(prmName string, vals url.Values) (int64, error) {
+	v := vals[prmName]
+	if v == nil || len(v) == 0 {
+		return 0, errors.New("Param " + prmName + " not found.")
+	}
+	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
+}
+
+func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
+	prm := c.Param(prmName)
+	if prm == "" {
+		return -1, errors.New("Expecting some value for int parameter(" + prmName + ")")
+	}
+	val, err := strconv.ParseInt(prm, 10, 64)
+	if err != nil {
+		return -1, errors.New("Expecting an integer value, but got \"" + prm + "\"")
+	}
+	return val, nil
+}
+
+//============================== Transformers ================================
+func (a *api) imgURL(imgId string) string {
+	if imgId == "" {
+		return ""
+	}
+	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
+}
+
+func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
+	prfMap := a.profilesToProfiles(scnTl.Profiles)
+	mg2Profs := make(map[int64][]*Profile)
+	for pid, mgId := range scnTl.Prof2MGs {
+		arr, ok := mg2Profs[mgId]
+		if !ok {
+			arr = make([]*Profile, 0, 1)
+		}
+		pr, ok := prfMap[pid]
+		if ok {
+			arr = append(arr, pr)
+		}
+		mg2Profs[mgId] = arr
+	}
+
+	stl := new(SceneTimeline)
+	stl.Persons = make([]*Person, len(scnTl.Persons))
+	for i, p := range scnTl.Persons {
+		prsn := a.personToPerson(p, prfMap)
+		prsn.CamId = &scnTl.CamId
+		fcs, ok := scnTl.Faces[p.Id]
+		if ok {
+			prsn.Pictures = a.facesToPictureInfos(fcs)
+		}
+		m2p, ok := mg2Profs[p.MatchGroup]
+		if ok {
+			prsn.Matches = m2p
+		}
+		stl.Persons[i] = prsn
+	}
+
+	stl.CamId = common.Id(scnTl.CamId)
+	stl.Frame.Id = scnTl.LatestPicId
+	stl.Frame.PicURL = a.imgURL(scnTl.LatestPicId)
+
+	return stl
+}
+
+func (a *api) personToPerson(p *model.Person, profs map[int64]*Profile) *Person {
+	ps := new(Person)
+	ps.Id = p.Id
+	ps.AvatarUrl = a.imgURL(p.PictureId)
+	ps.LastSeenAt = common.Timestamp(p.LastSeenAt).ToISO8601Time()
+	if pr, ok := profs[p.ProfileId]; ok {
+		ps.Profile = pr
+	}
+	return ps
+}
+
+func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*Profile {
+	res := make(map[int64]*Profile)
+	for pid, p := range profiles {
+		res[pid] = a.profileToProfile(p)
+	}
+	return res
+}
+
+func (a *api) profileToProfile(prf *model.Profile) *Profile {
+	p := new(Profile)
+	p.Id = prf.Id
+	p.OrgId = prf.OrgId
+	p.AvatarUrl = a.imgURL(prf.PictureId)
+	p.Attributes = a.metasToAttributes(prf.Meta)
+	return p
+}
+
+func (a *api) metasToAttributes(pms []*model.ProfileMeta) []*ProfileAttribute {
+	if pms == nil {
+		return nil
+	}
+	res := make([]*ProfileAttribute, len(pms))
+	for i, pm := range pms {
+		res[i] = a.metaToAttribute(pm)
+	}
+	return res
+}
+
+func (a *api) metaToAttribute(prf *model.ProfileMeta) *ProfileAttribute {
+	pa := new(ProfileAttribute)
+	pa.FieldId = prf.FieldId
+	pa.Name = prf.DisplayName
+	pa.Value = prf.Value
+	return pa
+}
+
+func (a *api) facesToPictureInfos(faces []*model.Face) []*PictureInfo {
+	if faces == nil {
+		return []*PictureInfo{}
+	}
+	res := make([]*PictureInfo, len(faces))
+	for i, f := range faces {
+		res[i] = a.faceToPictureInfo(f)
+	}
+	return res
+}
+
+func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {
+	pi := new(PictureInfo)
+	pi.Id = face.FaceImageId
+	fUrl := a.imgURL(face.FaceImageId)
+	pi.FaceURL = &fUrl
+	pi.PicURL = a.imgURL(face.ImageId)
+	pi.Rect = &face.Rect
+	ts := common.Timestamp(face.CapturedAt)
+	tss := ts.ToISO8601Time()
+	pi.Timestamp = &tss
+	return pi
+}
+
+func (a *api) org2morg(org *Organization) *model.Organization {
+	mo := new(model.Organization)
+	mo.Id = org.Id
+	mo.Name = org.Name
+	return mo
+}
+
+func (a *api) morg2org(mo *model.Organization, fis []*model.FieldInfo) *Organization {
+	org := new(Organization)
+	org.Id = mo.Id
+	org.Name = mo.Name
+	org.Meta = a.fieldInfos2MetaInfos(fis)
+	return org
+}
+
+func (a *api) fieldInfos2MetaInfos(fieldInfos []*model.FieldInfo) []*OrgMetaInfo {
+	if fieldInfos == nil {
+		return nil
+	}
+	res := make([]*OrgMetaInfo, len(fieldInfos))
+	for i, fi := range fieldInfos {
+		res[i] = a.fieldInfo2MetaInfo(fi)
+	}
+	return res
+}
+
+func (a *api) fieldInfo2MetaInfo(fieldInfo *model.FieldInfo) *OrgMetaInfo {
+	mi := new(OrgMetaInfo)
+	mi.FieldName = fieldInfo.DisplayName
+	mi.FieldType = fieldInfo.FieldType
+	mi.Id = fieldInfo.Id
+	return mi
+}
+
+func (a *api) metaInfos2FieldInfos(mis OrgMetaInfoArr, orgId int64) []*model.FieldInfo {
+	if mis == nil {
+		return nil
+	}
+	res := make([]*model.FieldInfo, len(mis))
+	for i, mi := range mis {
+		res[i] = a.metaInfo2FieldInfo(mi)
+		res[i].OrgId = orgId
+	}
+	return res
+}
+
+func (a *api) metaInfo2FieldInfo(mi *OrgMetaInfo) *model.FieldInfo {
+	fi := new(model.FieldInfo)
+	fi.DisplayName = strings.Trim(mi.FieldName, " \t")
+	fi.FieldType = mi.FieldType
+	fi.Id = mi.Id
+	return fi
 }
 
 func (a *api) errorResponse(c *gin.Context, err error) bool {

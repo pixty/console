@@ -40,9 +40,9 @@ func main() {
 	lbs := service.NewLfsBlobStorage(cc.LbsDir, cc.GetLbsMaxSizeBytes())
 	fpcp := fpcp_serv.NewFPCPServer()
 	scnProc := scene.NewSceneProcessor()
-	orgServ := service.NewOrgService()
+	dtaCtrlr := service.NewDataController()
 
-	injector.RegisterMany(cc, restApi, fpcp, orgServ)
+	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(msqlPersist, "persister")
