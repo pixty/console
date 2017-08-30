@@ -36,19 +36,36 @@ func ImgMakeId(imgId string, rect *image.Rectangle) string {
 	return fmt.Sprintf("%s_%d_%d_%d_%d", imgId, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
 }
 
+// Parses imgFileName and returns parsed Id and rectangle, if present:
+// In: abc.png Out: abc, nil, nil
+// In: abc_1_2_3_4.png Out: abc, {1,2,3,4}, nil
+// In: http://localhost:8080/images/abc.png Out: abc, nil, nil
 func ImgParseFileName(imgFileName string) (string, *image.Rectangle, error) {
 	var nilId string
 	if !strings.HasSuffix(imgFileName, ".png") {
 		return nilId, nil, errors.New("Expecting .png filename, but received " + imgFileName)
 	}
 
+	idx := strings.LastIndex(imgFileName, "/")
+	if idx > -1 {
+		imgFileName = imgFileName[idx+1 : len(imgFileName)]
+	}
 	id := strings.TrimSuffix(imgFileName, ".png")
 	return ImgParseId(id)
 }
 
+// Parses imgFileName and returns parsed Id:
+// In: abc.png Out: abc, nil
+// In: abc_1_2_3_4.png Out: abc_1_2_3_4, nil
+// In: http://localhost:8080/images/abc.png Out: abc, nil
+// In: http://localhost:8080/images/abc.jpeg Out: nil, <.png is expected>
 func ImgParseFileNameNotDeep(imgFileName string) (string, error) {
 	if !strings.HasSuffix(imgFileName, ".png") {
 		return "", errors.New("Expecting .png filename, but received " + imgFileName)
+	}
+	idx := strings.LastIndex(imgFileName, "/")
+	if idx > -1 {
+		imgFileName = imgFileName[idx+1 : len(imgFileName)]
 	}
 	return strings.TrimSuffix(imgFileName, ".png"), nil
 }

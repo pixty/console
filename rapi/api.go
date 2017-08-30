@@ -69,17 +69,8 @@ func (a *api) DiPostConstruct() {
 	a.ge.GET("/orgs/:orgId/fields", a.h_GET_orgs_orgId_fields)
 	a.ge.PUT("/orgs/:orgId/fields/:fldId", a.h_PUT_orgs_orgId_fields_fldId)
 	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
-
-	//	a.endpoint("GET", "/profiles/:profileId", func(c *gin.Context) { a.h_GET_profile(c, common.Id(c.Param("profileId"))) })
-	//	a.endpoint("GET", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_GET_profile_persons(c, common.Id(c.Param("profileId"))) })
-	//	a.endpoint("POST", "/profiles/:profileId/persons", func(c *gin.Context) { a.h_POST_profile_persons(c, common.Id(c.Param("profileId"))) })
-	//	a.endpoint("GET", "/profiles/:profileId/persons/:personId", func(c *gin.Context) {
-	//		a.h_GET_profile_persons_person(c, common.Id(c.Param("profileId")), common.Id(c.Param("personId")))
-	//	})
-	//	a.endpoint("POST", "/profiles/", func(c *gin.Context) { a.h_POST_profile(c) })
-	//	a.endpoint("GET", "/pictures/:picId", func(c *gin.Context) { a.h_GET_pictures_pic(c, common.Id(c.Param("picId"))) })
-	//	a.endpoint("GET", "/pictures/:picId/download", func(c *gin.Context) { a.h_GET_pictures_pic_download(c, common.Id(c.Param("picId"))) })
-
+	a.ge.POST("/profiles", a.h_POST_profiles)
+	a.ge.GET("/profiles/:prfId", a.h_GET_profiles_prfId)
 }
 
 // =============================== Handlers ==================================
@@ -263,19 +254,91 @@ func getOrgId(c *gin.Context) (int64, error) {
 	return 1, nil
 }
 
+func wrapError(msg string, e error) error {
+	if e == nil {
+		return nil
+	}
+	return errors.New(msg + e.Error())
+}
+
 // POST /profiles - o, u, sa
 func (a *api) h_POST_profiles(c *gin.Context) {
+	a.logger.Info("POST /profiles")
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	var p Profile
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+		return
+	}
+
+	prf, err := a.profile2mProfile(&p)
+	if a.errorResponse(c, err) {
+		return
+	}
+	prf.OrgId = orgId
+
+	pid, err := a.Dc.InsertProfile(prf)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	w := c.Writer
+	uri := composeURI(c.Request, strconv.FormatInt(pid, 10))
+	a.logger.Debug("New profile with location ", uri, " has been just created")
+	w.Header().Set("Location", uri)
+	c.Status(http.StatusCreated)
 }
 
 // GET /profiles - o, u, sa -vs query
 func (a *api) h_GET_profiles(c *gin.Context) {
-
+	//	orgId, err := getOrgId(c)
+	//	if a.errorResponse(c, err) {
+	//		return
+	//	}
 }
 
-// GET /profiles/:profileId - o, u, sa
+// GET /profiles/:prfId - o, u, sa
 func (a *api) h_GET_profiles_prfId(c *gin.Context) {
+	prfId, err := parseInt64Param(c, "prfId")
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	a.logger.Info("POST /profiles/", prfId)
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	p, err := a.Dc.GetProfile(prfId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	if p.OrgId != orgId {
+		a.errorResponse(c, common.NewError(common.ERR_NOT_FOUND, "No profile with id="+strconv.FormatInt(prfId, 10)))
+		return
+	}
+	c.JSON(http.StatusOK, a.profileToProfile(p))
+}
+
+// PUT /profiles/:profileId - o, u, sa
+func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
+	//	orgId, err := getOrgId(c)
+	//	if a.errorResponse(c, err) {
+	//		return
+	//	}
+}
+
+// DELETE /profiles/:profileId - o, u, sa
+func (a *api) h_DELETE_profiles_prfId(c *gin.Context) {
+	//	orgId, err := getOrgId(c)
+	//	if a.errorResponse(c, err) {
+	//		return
+	//	}
 }
 
 // POST /profiles/:profId/persons/:persId - o, u, sa
@@ -661,6 +724,42 @@ func (a *api) metaInfo2FieldInfo(mi *OrgMetaInfo) *model.FieldInfo {
 	fi.FieldType = mi.FieldType
 	fi.Id = mi.Id
 	return fi
+}
+
+func (a *api) profile2mProfile(p *Profile) (*model.Profile, error) {
+	prf := new(model.Profile)
+	prf.Id = p.Id
+	prf.OrgId = p.OrgId
+	if p.AvatarUrl != "" {
+		id, err := common.ImgParseFileNameNotDeep(p.AvatarUrl)
+		if err != nil {
+			return nil, err
+		}
+		prf.PictureId = id
+	}
+	prf.Meta = a.prfAttrbs2prfMetas(p.Attributes)
+	return prf, nil
+}
+
+func (a *api) prfAttrbs2prfMetas(pas []*ProfileAttribute) []*model.ProfileMeta {
+	if pas == nil {
+		return nil
+	}
+
+	pms := make([]*model.ProfileMeta, len(pas))
+	for i, pa := range pas {
+		pms[i] = a.prfAttrb2prfMeta(pa)
+	}
+	return pms
+}
+
+// It never fills ProfileId(!!!)
+func (a *api) prfAttrb2prfMeta(pa *ProfileAttribute) *model.ProfileMeta {
+	pm := new(model.ProfileMeta)
+	pm.FieldId = pa.FieldId
+	pm.Value = pa.Value
+	pm.DisplayName = pa.Name
+	return pm
 }
 
 func (a *api) errorResponse(c *gin.Context, err error) bool {

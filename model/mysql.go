@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql"
 	"io/ioutil"
 	"strconv"
@@ -16,13 +17,14 @@ import (
 type (
 	MysqlPersister struct {
 		// The console configuration. Will be injected
-		Config   *common.ConsoleConfig `inject:""`
-		logger   log4g.Logger
-		mainPers *msql_main_persister
-		// same like main one, so far...
-		partPers *msql_part_persister
+		Config *common.ConsoleConfig `inject:""`
+		logger log4g.Logger
+		// Keep main connection all the time
+		mainConn *msql_connection
 	}
 
+	// Connection to database, just establishes connection and keeps pool via
+	// DB object
 	msql_connection struct {
 		lock    sync.Mutex
 		logger  log4g.Logger
@@ -31,14 +33,28 @@ type (
 		db      *sql.DB
 	}
 
-	msql_main_persister struct {
-		logger log4g.Logger
-		dbc    *msql_connection
+	// The object is provided for making requests to MySQL, it abstracts
+	// whether sql.DB or sql.Tx objects. Decorates calls to sql.DB or sql.TX
+	msql_executor interface {
+		Exec(query string, args ...interface{}) (sql.Result, error)
+		Query(query string, args ...interface{}) (*sql.Rows, error)
 	}
 
-	msql_part_persister struct {
+	// The object keeps connection to DB and supports transaction management
+	msql_tx struct {
 		logger log4g.Logger
-		dbc    *msql_connection
+		// never nil
+		db *sql.DB
+		// keeps active transaction, if it exists
+		tx *sql.Tx
+	}
+
+	msql_main_tx struct {
+		*msql_tx
+	}
+
+	msql_part_tx struct {
+		*msql_tx
 	}
 )
 
@@ -56,10 +72,7 @@ func (mp *MysqlPersister) DiPhase() int {
 
 func (mp *MysqlPersister) DiInit() error {
 	mp.logger.Info("Initializing.")
-	mc := mp.newConnection(mp.Config.MysqlDatasource, log4g.GetLogger("pixty.mysql.main"))
-	mp.mainPers = &msql_main_persister{mc.logger, mc}
-	pc := mp.newConnection(mp.Config.MysqlDatasource, log4g.GetLogger("pixty.mysql.part"))
-	mp.partPers = &msql_part_persister{pc.logger, pc}
+	mp.mainConn = mp.newConnection(mp.Config.MysqlDatasource, log4g.GetLogger("pixty.mysql.main"))
 	return nil
 }
 
@@ -68,16 +81,32 @@ func (mp *MysqlPersister) DiShutdown() {
 }
 
 // ------------------------------ Persister ----------------------------------
-func (mp *MysqlPersister) GetMainPersister() MainPersister {
-	return mp.mainPers
+func (mp *MysqlPersister) GetMainTx() (MainTx, error) {
+	tx, err := mp.makeTx(mp.mainConn)
+	if err != nil {
+		return nil, err
+	}
+	return &msql_main_tx{msql_tx: tx}, nil
 }
 
-func (mp *MysqlPersister) GetPartPersister(partId string) PartPersister {
-	// let's use one instance of part persister so far
-	return mp.partPers
+func (mp *MysqlPersister) GetPartitionTx(partId string) (PartTx, error) {
+	tx, err := mp.makeTx(mp.mainConn)
+	if err != nil {
+		return nil, err
+	}
+	tx.logger = log4g.GetLogger("pixty.mysql." + partId)
+	return &msql_part_tx{msql_tx: tx}, nil
 }
 
 // -------------------------------- Misc -------------------------------------
+func (mp *MysqlPersister) makeTx(mc *msql_connection) (*msql_tx, error) {
+	db, err := mc.getDb()
+	if err != nil {
+		return nil, err
+	}
+	return &msql_tx{db: db, logger: mc.logger}, nil
+}
+
 //The method cuts password to make it use in logs
 func (mp *MysqlPersister) getFriendlyName(ds string) string {
 	cfg, err := mysql.ParseDSN(ds)
@@ -131,22 +160,62 @@ func (mc *msql_connection) getDb() (*sql.DB, error) {
 	return db, nil
 }
 
-func (mc *msql_connection) exec(sqlQuery string, params ...interface{}) error {
-	db, err := mc.getDb()
-	if err != nil {
-		mc.logger.Warn("exec(): Could not get DB err=", err)
-		return err
+// ============================== msql_tx ====================================
+func (mtx *msql_tx) executor() msql_executor {
+	if mtx.tx == nil {
+		return mtx.db
 	}
+	return mtx.tx
+}
 
-	_, err = db.Exec(sqlQuery, params...)
+// Begins tx in serializable isolation level
+func (mtx *msql_tx) BeginSerializable() error {
+	return mtx.begin(&sql.TxOptions{Isolation: sql.LevelSerializable})
+}
+
+func (mtx *msql_tx) Begin() error {
+	return mtx.begin(nil)
+}
+
+func (mtx *msql_tx) begin(ops *sql.TxOptions) error {
+	mtx.Commit()
+	tx, err := mtx.db.BeginTx(context.TODO(), ops)
+	if err == nil {
+		mtx.tx = tx
+	}
 	return err
 }
 
-func (mc *msql_connection) execScript(sqlScript string) error {
+func (mtx *msql_tx) Rollback() error {
+	var err error
+	if mtx.tx != nil {
+		err = mtx.tx.Rollback()
+		mtx.tx = nil
+	}
+	mtx.logger.Debug("Rollback() done. err=", err)
+	return err
+}
+
+func (mtx *msql_tx) Commit() error {
+	var err error
+	if mtx.tx != nil {
+		err = mtx.tx.Commit()
+		mtx.tx = nil
+	}
+	mtx.logger.Debug("Commit() done. err=", err)
+	return err
+}
+
+func (mtx *msql_tx) ExecQuery(sqlQuery string, params ...interface{}) error {
+	_, err := mtx.executor().Exec(sqlQuery, params...)
+	return err
+}
+
+func (mtx *msql_tx) ExecScript(sqlScript string) error {
 	file, err := ioutil.ReadFile(sqlScript)
 
 	if err != nil {
-		mc.logger.Warn("Could not find/read script file ", sqlScript, ", err=", err)
+		mtx.logger.Warn("ExecScript(): Could not find/read script file ", sqlScript, ", err=", err)
 		return err
 	}
 
@@ -156,9 +225,9 @@ func (mc *msql_connection) execScript(sqlScript string) error {
 		if strings.Trim(request, " ") == "" {
 			continue
 		}
-		err := mc.exec(request)
+		err := mtx.ExecQuery(request)
 		if err != nil {
-			mc.logger.Warn("Ooops, error while executing the following statement request=", request, ", err=", err)
+			mtx.logger.Warn("ExecScript(): Ooops, error while executing the following statement request=", request, ", err=", err)
 			return err
 		}
 	}
@@ -166,22 +235,8 @@ func (mc *msql_connection) execScript(sqlScript string) error {
 }
 
 // ========================= msql_main_persister =============================
-func (mmp *msql_main_persister) ExecQuery(sqlQuery string, params ...interface{}) error {
-	return mmp.dbc.exec(sqlQuery)
-}
-
-func (mmp *msql_main_persister) ExecScript(pathToFile string) error {
-	return mmp.dbc.execScript(pathToFile)
-}
-
-func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("FindCameraById(): Could not get DB err=", err)
-		return nil, err
-	}
-
-	rows, err := db.Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
+func (mmp *msql_main_tx) FindCameraById(camId string) (*Camera, error) {
+	rows, err := mmp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
 	if err != nil {
 		mmp.logger.Warn("Could read camera by id=", camId, ", err=", err)
 		return nil, err
@@ -193,39 +248,27 @@ func (mmp *msql_main_persister) FindCameraById(camId string) (*Camera, error) {
 		err := rows.Scan(&cam.OrgId, &cam.SecretKey)
 		cam.Id = camId
 		if err != nil {
-			mmp.logger.Warn("FindCameraByAccessKey() could not scan result err=", err)
+			mmp.logger.Warn("FindCameraById(): could not scan result err=", err)
 		}
 		return cam, nil
 	}
 	return nil, nil
 }
 
-func (mmp *msql_main_persister) InsertOrg(org *Organization) (int64, error) {
-	db, err := mmp.dbc.getDb()
+func (mmp *msql_main_tx) InsertOrg(org *Organization) (int64, error) {
+	res, err := mmp.executor().Exec("INSERT INTO organization(name) VALUES (?)", org.Name)
 	if err != nil {
-		mmp.logger.Warn("InsertOrg(): Could not get DB err=", err)
-		return -1, err
-	}
-
-	res, err := db.Exec("INSERT INTO organization(name) VALUES (?)", org.Name)
-	if err != nil {
-		mmp.logger.Warn("InsertOrg: Could not insert new organization ", org, ", got the err=", err)
+		mmp.logger.Warn("InsertOrg(): Could not insert new organization ", org, ", got the err=", err)
 		return -1, err
 	}
 
 	return res.LastInsertId()
 }
 
-func (mmp *msql_main_persister) GetOrg(orgId int64) (*Organization, error) {
-	db, err := mmp.dbc.getDb()
+func (mmp *msql_main_tx) GetOrg(orgId int64) (*Organization, error) {
+	rows, err := mmp.executor().Query("SELECT name FROM organization WHERE id=?", orgId)
 	if err != nil {
-		mmp.logger.Warn("GetOrg(): Could not get DB err=", err)
-		return nil, err
-	}
-
-	rows, err := db.Query("SELECT name FROM organization WHERE id=?", orgId)
-	if err != nil {
-		mmp.logger.Warn("GetOrg: Could not get organization by orgId=", orgId, ", got the err=", err)
+		mmp.logger.Warn("GetOrg(): Could not get organization by orgId=", orgId, ", got the err=", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -236,148 +279,24 @@ func (mmp *msql_main_persister) GetOrg(orgId int64) (*Organization, error) {
 		return org, nil
 	}
 
-	mmp.logger.Warn("GetOrg: No organization by orgId=", orgId)
+	mmp.logger.Warn("GetOrg(): No organization by orgId=", orgId)
 	return nil, common.NewError(common.ERR_NOT_FOUND, "No org for orgId="+strconv.FormatInt(orgId, 10))
 }
 
-func (mmp *msql_main_persister) GetFieldInfo(fldId int64) (*FieldInfo, error) {
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("GetFieldInfo(): Could not get DB err=", err)
-		return nil, err
-	}
-
-	rows, err := db.Query("SELECT id, org_id, field_type, display_name FROM field_info WHERE id=?", fldId)
-	if err != nil {
-		mmp.logger.Warn("GetFieldInfo(): Could not select field info by fldId=", fldId, ", got the err=", err)
-		return nil, err
-	}
-	defer rows.Close()
-
-	if rows.Next() {
-		fi := new(FieldInfo)
-		rows.Scan(&fi.Id, &fi.OrgId, &fi.FieldType, &fi.DisplayName)
-		return fi, nil
-	}
-
-	mmp.logger.Warn("GetOrg: No field by fldId=", fldId)
-	return nil, common.NewError(common.ERR_NOT_FOUND, "No field info by fldId="+strconv.FormatInt(fldId, 10))
-}
-
-func (mmp *msql_main_persister) GetFieldInfos(orgId int64) ([]*FieldInfo, error) {
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("GetFieldInfos(): Could not get DB err=", err)
-		return nil, err
-	}
-
-	rows, err := db.Query("SELECT id, field_type, display_name FROM field_info WHERE org_id=?", orgId)
-	if err != nil {
-		mmp.logger.Warn("GetFieldInfos: Could not select field infos by orgId=", orgId, ", got the err=", err)
-		return nil, err
-	}
-	defer rows.Close()
-
-	res := make([]*FieldInfo, 0, 3)
-	for rows.Next() {
-		fi := new(FieldInfo)
-		rows.Scan(&fi.Id, &fi.FieldType, &fi.DisplayName)
-		fi.OrgId = orgId
-		res = append(res, fi)
-	}
-	return res, nil
-}
-
-func (mmp *msql_main_persister) InsertFieldInfos(fldInfos []*FieldInfo) error {
-	if fldInfos == nil || len(fldInfos) == 0 {
-		mmp.logger.Warn("InsertFieldInfos(): got an empty list, adds nothing")
-		return nil
-	}
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("InsertFieldInfos(): Could not get DB err=", err)
-		return err
-	}
-
-	q := "INSERT INTO field_info(org_id, field_type, display_name) VALUES "
-	params := make([]interface{}, 0, len(fldInfos)*3)
-	for i, fi := range fldInfos {
-		if i > 0 {
-			q += ", (?, ?, ?)"
-		} else {
-			q += " (?, ?, ?)"
-		}
-		params = append(params, fi.OrgId, fi.FieldType, fi.DisplayName)
-	}
-
-	mmp.logger.Debug("InsertFieldInfos: Inserting q=", q, ", params=", params)
-	_, err = db.Exec(q, params...)
-	if err != nil {
-		mmp.logger.Warn("InsertFieldInfos: Could not insert new fieldInfos ", fldInfos, ", got the err=", err)
-		return err
-	}
-
-	return nil
-}
-
-func (mmp *msql_main_persister) UpdateFiledInfo(fldInfo *FieldInfo) error {
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("UpdateFiledInfo(): Could not get DB err=", err)
-		return err
-	}
-
-	_, err = db.Exec("UPDATE field_info SET display_name=? WHERE id=?", fldInfo.DisplayName, fldInfo.Id)
-	if err != nil {
-		mmp.logger.Warn("UpdateFiledInfo: Could not update fieldInfo ", fldInfo, ", got the err=", err)
-		return err
-	}
-	return nil
-}
-
-func (mmp *msql_main_persister) DeleteFieldInfo(fldInfo *FieldInfo) error {
-	db, err := mmp.dbc.getDb()
-	if err != nil {
-		mmp.logger.Warn("DeleteFieldInfo(): Could not get DB err=", err)
-		return err
-	}
-
-	_, err = db.Exec("DELETE FROM field_info WHERE id=?", fldInfo.Id)
-	if err != nil {
-		mmp.logger.Warn("DeleteFieldInfo: Could not delete fieldInfo ", fldInfo, ", got the err=", err)
-		return err
-	}
-	return nil
-}
-
 // ========================= msql_part_persister =============================
-func (mpp *msql_part_persister) ExecQuery(sqlQuery string, params ...interface{}) error {
-	return mpp.dbc.exec(sqlQuery)
-}
-
-func (mpp *msql_part_persister) ExecScript(pathToFile string) error {
-	return mpp.dbc.execScript(pathToFile)
-}
-
-func (mpp *msql_part_persister) InsertFace(f *Face) (int64, error) {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("InsertFace(): Could not get DB err=", err)
-		return -1, err
-	}
-
-	res, err := db.Exec("INSERT INTO face(scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d) VALUES (?,?,?,?,?,?,?,?,?,?)",
+func (mpp *msql_part_tx) InsertFace(f *Face) (int64, error) {
+	res, err := mpp.executor().Exec("INSERT INTO face(scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d) VALUES (?,?,?,?,?,?,?,?,?,?)",
 		f.SceneId, f.PersonId, f.CapturedAt, f.ImageId, f.Rect.LeftTop.Y, f.Rect.LeftTop.X, f.Rect.RightBottom.Y, f.Rect.RightBottom.X, f.FaceImageId, f.V128D.ToByteSlice())
 	if err != nil {
-		mpp.logger.Warn("Could not insert new face ", f, ", got the err=", err)
+		mpp.logger.Warn("InsertFace(): Could not insert new face ", f, ", got the err=", err)
 		return -1, err
 	}
 
 	return res.LastInsertId()
 }
 
-func (mpp *msql_part_persister) InsertFaces(faces []*Face) error {
-	mpp.logger.Debug("Inserting ", len(faces), " faces to DB: ", faces)
+func (mpp *msql_part_tx) InsertFaces(faces []*Face) error {
+	mpp.logger.Debug("InsertFaces() ", len(faces), " faces to DB: ", faces)
 	if len(faces) > 0 {
 		q := "INSERT INTO face(scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d) VALUES "
 		vals := []interface{}{}
@@ -389,29 +308,17 @@ func (mpp *msql_part_persister) InsertFaces(faces []*Face) error {
 			vals = append(vals, f.SceneId, f.PersonId, f.CapturedAt, f.ImageId, f.Rect.LeftTop.Y, f.Rect.LeftTop.X, f.Rect.RightBottom.Y, f.Rect.RightBottom.X, f.FaceImageId, f.V128D.ToByteSlice())
 		}
 
-		db, err := mpp.dbc.getDb()
+		_, err := mpp.executor().Exec(q, vals...)
 		if err != nil {
-			mpp.logger.Warn("InsertFaces(): Could not get DB err=", err)
-			return err
-		}
-
-		_, err = db.Exec(q, vals...)
-		if err != nil {
-			mpp.logger.Warn("Could not execute insert query ", q, ", err=", err)
+			mpp.logger.Warn("InserFaces(): Could not execute insert query ", q, ", err=", err)
 			return err
 		}
 	}
 	return nil
 }
 
-func (mpp *msql_part_persister) GetFaceById(fId int64) (*Face, error) {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("GetFaceById(): Could not get DB err=", err)
-		return nil, err
-	}
-
-	rows, err := db.Query("SELECT scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d FROM face WHERE id=?", fId)
+func (mpp *msql_part_tx) GetFaceById(fId int64) (*Face, error) {
+	rows, err := mpp.executor().Query("SELECT scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d FROM face WHERE id=?", fId)
 	if err != nil {
 		mpp.logger.Warn("GetFaceById(): could read face by id=", fId, ", err=", err)
 		return nil, err
@@ -434,13 +341,7 @@ func (mpp *msql_part_persister) GetFaceById(fId int64) (*Face, error) {
 	return nil, nil
 }
 
-func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("FindFaces(): Could not get DB err=", err)
-		return nil, err
-	}
-
+func (mpp *msql_part_tx) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	mpp.logger.Debug("FindFaces: Requesting faces by ", fQuery)
 	var q string
 	if fQuery.Short {
@@ -473,7 +374,7 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	}
 
 	mpp.logger.Debug("FindFaces: q=", q, " ", whereParams)
-	rows, err := db.Query(q, whereParams...)
+	rows, err := mpp.executor().Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("FindFaces(): could read faces by query=", fQuery, ", err=", err)
 		return nil, err
@@ -504,13 +405,8 @@ func (mpp *msql_part_persister) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	return res, nil
 }
 
-func (mpp *msql_part_persister) GetPersonById(pId string) (*Person, error) {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("GetPersonById(): Could not get DB err=", err)
-		return nil, err
-	}
-	rows, err := db.Query("SELECT cam_id, last_seen, profile_id, picture_id, match_group FROM person WHERE id=?", pId)
+func (mpp *msql_part_tx) GetPersonById(pId string) (*Person, error) {
+	rows, err := mpp.executor().Query("SELECT cam_id, last_seen, profile_id, picture_id, match_group FROM person WHERE id=?", pId)
 	if err != nil {
 		mpp.logger.Warn("GetPersonById(): could read by id=", pId, ", err=", err)
 		return nil, err
@@ -529,13 +425,7 @@ func (mpp *msql_part_persister) GetPersonById(pId string) (*Person, error) {
 	return nil, nil
 }
 
-func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("FindPersons(): Could not get DB err=", err)
-		return nil, err
-	}
-
+func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 	mpp.logger.Debug("FindPersons: Requesting faces by ", pQuery)
 	q := "SELECT id, cam_id, last_seen, profile_id, picture_id, match_group FROM person "
 	whereCond := []string{}
@@ -585,8 +475,8 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 		q = q + " LIMIT " + strconv.Itoa(pQuery.Limit)
 	}
 
-	mpp.logger.Debug("FindPersons: q=", q, whereParams)
-	rows, err := db.Query(q, whereParams...)
+	mpp.logger.Debug("FindPersons(): q=", q, whereParams)
+	rows, err := mpp.executor().Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("FindPersons(): could read faces by query=", pQuery, ", err=", err)
 		return nil, err
@@ -607,13 +497,8 @@ func (mpp *msql_part_persister) FindPersons(pQuery *PersonsQuery) ([]*Person, er
 
 }
 
-func (mpp *msql_part_persister) InsertPerson(p *Person) error {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("InsertPerson(): Could not get DB err=", err)
-		return err
-	}
-	_, err = db.Exec("INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
+func (mpp *msql_part_tx) InsertPerson(p *Person) error {
+	_, err := mpp.executor().Exec("INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
 		p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 	if err != nil {
 		mpp.logger.Warn("InsertPerson(): Could not insert new person ", p, ", got the err=", err)
@@ -623,7 +508,7 @@ func (mpp *msql_part_persister) InsertPerson(p *Person) error {
 	return nil
 }
 
-func (mpp *msql_part_persister) InsertPersons(persons []*Person) error {
+func (mpp *msql_part_tx) InsertPersons(persons []*Person) error {
 	mpp.logger.Debug("Inserting ", len(persons), " persons to DB: ", persons)
 	if len(persons) > 0 {
 		q := "INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES "
@@ -633,17 +518,10 @@ func (mpp *msql_part_persister) InsertPersons(persons []*Person) error {
 				q = q + ", "
 			}
 			q = q + "(?,?,?,?,?,?)"
-			mpp.logger.Info("p=", p)
 			vals = append(vals, p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 		}
 
-		db, err := mpp.dbc.getDb()
-		if err != nil {
-			mpp.logger.Warn("InsertPersons(): Could not get DB err=", err)
-			return err
-		}
-
-		_, err = db.Exec(q, vals...)
+		_, err := mpp.executor().Exec(q, vals...)
 		if err != nil {
 			mpp.logger.Warn("Could not execute insert query ", q, ", err=", err)
 			return err
@@ -653,14 +531,8 @@ func (mpp *msql_part_persister) InsertPersons(persons []*Person) error {
 
 }
 
-func (mpp *msql_part_persister) UpdatePerson(p *Person) error {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("UpdatePerson(): Could not get DB err=", err)
-		return err
-	}
-
-	_, err = db.Exec("UPDATE person SET last_seen=?, profile_id=?, picture_id=?, match_group=?",
+func (mpp *msql_part_tx) UpdatePerson(p *Person) error {
+	_, err := mpp.executor().Exec("UPDATE person SET last_seen=?, profile_id=?, picture_id=?, match_group=?",
 		p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 	if err != nil {
 		mpp.logger.Warn("UpdatePerson(): Could not update person ", p, ", got the err=", err)
@@ -669,12 +541,7 @@ func (mpp *msql_part_persister) UpdatePerson(p *Person) error {
 	return nil
 }
 
-func (mpp *msql_part_persister) UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error {
-	db, err := mpp.dbc.getDb()
-	if err != nil {
-		mpp.logger.Warn("UpdatePersonsLastSeenAt(): Could not get DB err=", err)
-		return err
-	}
+func (mpp *msql_part_tx) UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error {
 	if pids == nil || len(pids) == 0 {
 		return nil
 	}
@@ -693,26 +560,165 @@ func (mpp *msql_part_persister) UpdatePersonsLastSeenAt(pids []string, lastSeenA
 	q = q + ")"
 
 	mpp.logger.Debug("UpdatePersonsLastSeenAt(): q=", q, " ", args)
-	_, err = db.Exec(q, args...)
+	_, err := mpp.executor().Exec(q, args...)
 	return err
 }
 
-func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) {
-	db, err := mpp.dbc.getDb()
+// =========== Field Infos
+func (mpp *msql_part_tx) GetFieldInfo(fldId int64) (*FieldInfo, error) {
+	rows, err := mpp.executor().Query("SELECT id, org_id, field_type, display_name FROM field_info WHERE id=?", fldId)
 	if err != nil {
-		mpp.logger.Warn("GetProfiles(): Could not get DB err=", err)
+		mpp.logger.Warn("GetFieldInfo(): Could not select field info by fldId=", fldId, ", got the err=", err)
 		return nil, err
 	}
+	defer rows.Close()
 
-	mpp.logger.Debug("GetProfiles: Requesting profiles by ", prQuery)
-	var q string
-	where := false
-	if prQuery.NoMeta {
-		q = "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
-	} else {
-		q = "SELECT (SELECT display_name FROM field_info WHERE org_id=p.org_id AND id=pm.field_id), pm.field_id, pm.value, p.id, p.org_id, p.picture_id FROM profile AS p, profile_meta AS pm WHERE p.id=pm.profile_id "
-		where = true
+	if rows.Next() {
+		fi := new(FieldInfo)
+		rows.Scan(&fi.Id, &fi.OrgId, &fi.FieldType, &fi.DisplayName)
+		return fi, nil
 	}
+
+	mpp.logger.Warn("GetFieldInfo(): No field by fldId=", fldId)
+	return nil, common.NewError(common.ERR_NOT_FOUND, "No field info by fldId="+strconv.FormatInt(fldId, 10))
+}
+
+func (mpp *msql_part_tx) GetFieldInfos(orgId int64) ([]*FieldInfo, error) {
+	rows, err := mpp.executor().Query("SELECT id, field_type, display_name FROM field_info WHERE org_id=?", orgId)
+	if err != nil {
+		mpp.logger.Warn("GetFieldInfos: Could not select field infos by orgId=", orgId, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make([]*FieldInfo, 0, 3)
+	for rows.Next() {
+		fi := new(FieldInfo)
+		rows.Scan(&fi.Id, &fi.FieldType, &fi.DisplayName)
+		fi.OrgId = orgId
+		res = append(res, fi)
+	}
+	return res, nil
+}
+
+func (mpp *msql_part_tx) InsertFieldInfos(fldInfos []*FieldInfo) error {
+	if fldInfos == nil || len(fldInfos) == 0 {
+		mpp.logger.Warn("InsertFieldInfos(): got an empty list, adds nothing")
+		return nil
+	}
+	q := "INSERT INTO field_info(org_id, field_type, display_name) VALUES "
+	params := make([]interface{}, 0, len(fldInfos)*3)
+	for i, fi := range fldInfos {
+		if i > 0 {
+			q += ", (?, ?, ?)"
+		} else {
+			q += " (?, ?, ?)"
+		}
+		params = append(params, fi.OrgId, fi.FieldType, fi.DisplayName)
+	}
+
+	mpp.logger.Debug("InsertFieldInfos(): Inserting q=", q, ", params=", params)
+	_, err := mpp.executor().Exec(q, params...)
+	if err != nil {
+		mpp.logger.Warn("InsertFieldInfos(): Could not insert new fieldInfos ", fldInfos, ", got the err=", err)
+		return err
+	}
+
+	return nil
+}
+
+func (mpp *msql_part_tx) UpdateFiledInfo(fldInfo *FieldInfo) error {
+	_, err := mpp.executor().Exec("UPDATE field_info SET display_name=? WHERE id=?", fldInfo.DisplayName, fldInfo.Id)
+	if err != nil {
+		mpp.logger.Warn("UpdateFiledInfo(): Could not update fieldInfo ", fldInfo, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
+func (mpp *msql_part_tx) DeleteFieldInfo(fldInfo *FieldInfo) error {
+	_, err := mpp.executor().Exec("DELETE FROM field_info WHERE id=?", fldInfo.Id)
+	if err != nil {
+		mpp.logger.Warn("DeleteFieldInfo(): Could not delete fieldInfo ", fldInfo, ", got the err=", err)
+	}
+	return err
+}
+
+func (mpp *msql_part_tx) InsertProfile(prf *Profile) (int64, error) {
+	res, err := mpp.executor().Exec("INSERT INTO profile(org_id, picture_id) VALUES (?,?)",
+		prf.OrgId, prf.PictureId)
+	if err != nil {
+		mpp.logger.Warn("InsertProfile: Could not insert new profile ", prf, ", got the err=", err)
+		return -1, err
+	}
+
+	return res.LastInsertId()
+}
+
+func (mpp *msql_part_tx) InsertProfleMetas(pms []*ProfileMeta) error {
+	if pms == nil || len(pms) == 0 {
+		return nil
+	}
+
+	q := "INSERT INTO profile_meta(profile_id, field_id, value) VALUES "
+	vals := []interface{}{}
+	for i, pm := range pms {
+		if i > 0 {
+			q = q + ", "
+		}
+		q = q + "(?,?,?)"
+		vals = append(vals, pm.ProfileId, pm.FieldId, pm.Value)
+	}
+	_, err := mpp.executor().Exec(q, vals...)
+	if err != nil {
+		mpp.logger.Warn("InsertProfleMetas: Could not insert new profile metas, got the err=", err)
+		return err
+	}
+	return err
+}
+
+func (mpp *msql_part_tx) GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error) {
+	mpp.logger.Debug("GetProfileMetas(): Requesting profiles ", prfIds)
+	if prfIds == nil || len(prfIds) == 0 {
+		mpp.logger.Warn("GetProfileMetas(): Empty profiles list, returns nothing. ")
+	}
+	var q = "SELECT (SELECT display_name FROM field_info WHERE id=pm.field_id), pm.field_id, pm.value, pm.profile_id FROM profile_meta AS pm WHERE pm.profile_id IN ("
+
+	whereParams := []interface{}{}
+	for i, pid := range prfIds {
+		if i > 0 {
+			q += ", ?"
+		} else {
+			q += "?"
+		}
+		whereParams = append(whereParams, pid)
+	}
+
+	q += ")"
+	mpp.logger.Debug("GetProfileMetas(): q=", q, " ", whereParams)
+	rows, err := mpp.executor().Query(q, whereParams...)
+	if err != nil {
+		mpp.logger.Warn("GetProfileMetas(): could read profiles by query=", q, ", err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make([]*ProfileMeta, 0, 2)
+	for rows.Next() {
+		pm := new(ProfileMeta)
+		err := rows.Scan(&pm.DisplayName, &pm.FieldId, &pm.Value, &pm.ProfileId)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, pm)
+	}
+	return res, nil
+}
+
+func (mpp *msql_part_tx) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) {
+	mpp.logger.Debug("GetProfiles: Requesting profiles by ", prQuery)
+	q := "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
+	where := false
 
 	whereParams := []interface{}{}
 	if prQuery.ProfileIds != nil {
@@ -740,67 +746,50 @@ func (mpp *msql_part_persister) GetProfiles(prQuery *ProfileQuery) ([]*Profile, 
 	}
 
 	mpp.logger.Debug("GetProfiles: q=", q, " ", whereParams)
-	rows, err := db.Query(q, whereParams...)
+	rows, err := mpp.executor().Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("GetProfiles(): could read profiles by query=", prQuery, ", err=", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	if prQuery.NoMeta {
-		res := make([]*Profile, 0, len(prQuery.ProfileIds))
-		for rows.Next() {
-			p := new(Profile)
-			err := rows.Scan(&p.Id, &p.OrgId, &p.PictureId)
-			if err != nil {
-				mpp.logger.Warn("GetProfiles(): could not scan result (No Meta) err=", err)
-				return nil, err
-			}
-			res = append(res, p)
-		}
-		return res, nil
-	}
-
+	res := make([]*Profile, 0, len(prQuery.ProfileIds))
 	pMap := make(map[int64]*Profile)
 	for rows.Next() {
-		var fn, v, picId string
-		var pid, fldId, orgId int64
-		err := rows.Scan(&fn, &fldId, &v, &pid, &orgId, &picId)
+		p := new(Profile)
+		err := rows.Scan(&p.Id, &p.OrgId, &p.PictureId)
 		if err != nil {
-			mpp.logger.Warn("GetProfiles(): could not scan result(with Meta!) err=", err)
+			mpp.logger.Warn("GetProfiles(): could not scan result (No Meta) err=", err)
 			return nil, err
 		}
-
-		p, ok := pMap[pid]
-		if !ok {
-			p = new(Profile)
-			p.Id = pid
-			p.PictureId = picId
-			p.OrgId = orgId
-			p.Meta = make([]*ProfileMeta, 0, 2)
-			pMap[pid] = p
-		}
-		pm := new(ProfileMeta)
-		pm.FieldId = fldId
-		pm.Value = v
-		pm.ProfileId = pid
-		pm.DisplayName = fn
-	}
-
-	res := make([]*Profile, 0, len(pMap))
-	for _, p := range pMap {
 		res = append(res, p)
+		pMap[p.Id] = p
 	}
-	return res, nil
-}
 
-func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error) {
-	db, err := mpp.dbc.getDb()
+	if prQuery.NoMeta {
+		return res, nil
+	}
+	pms, err := mpp.GetProfileMetas(prQuery.ProfileIds)
 	if err != nil {
-		mpp.logger.Warn("GetProfilesByMGs(): Could not get DB err=", err)
+		mpp.logger.Warn("GetProfiles(): could not read profile Metas err=", err)
 		return nil, err
 	}
 
+	for _, pm := range pms {
+		pr, ok := pMap[pm.ProfileId]
+		if !ok {
+			continue
+		}
+		if pr.Meta == nil {
+			pr.Meta = make([]*ProfileMeta, 0, 2)
+		}
+		pr.Meta = append(pr.Meta, pm)
+	}
+
+	return res, nil
+}
+
+func (mpp *msql_part_tx) GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error) {
 	// pid -> mg
 	prfMap := make(map[int64]int64)
 	if matchGroups == nil || len(matchGroups) == 0 {
@@ -820,7 +809,7 @@ func (mpp *msql_part_persister) GetProfilesByMGs(matchGroups []int64) (map[int64
 	q += ")"
 
 	mpp.logger.Debug("GetProfilesByMGs: q=", q, " ", whereParams)
-	rows, err := db.Query(q, whereParams...)
+	rows, err := mpp.executor().Query(q, whereParams...)
 	if err != nil {
 		mpp.logger.Warn("GetProfilesByMGs(): could read profiles by match groups, err=", err)
 		return nil, err

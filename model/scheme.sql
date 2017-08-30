@@ -95,7 +95,9 @@ CREATE TABLE IF NOT EXISTS `profile_meta` (
 	`profile_id`                 BIGINT(20)      NOT NULL,
 	`field_id`                   BIGINT(20)      NOT NULL,
 	`value`                      VARCHAR(16535)  NOT NULL, 
-	UNIQUE `profile_id_field_id_idx` USING BTREE (profile_id, field_id)
+	UNIQUE `profile_id_field_id_idx` USING BTREE (profile_id, field_id),
+	FOREIGN KEY (`field_id`) REFERENCES field_info(id) ON DELETE CASCADE,
+	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 #After creation for test camera

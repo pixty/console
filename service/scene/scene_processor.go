@@ -136,7 +136,10 @@ func (sp *SceneProcessor) OnFPCPScene(camId string, scene *fpcp.Scene) error {
 
 // Returns scene timeline object
 func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, limit int) (*SceneTimeline, error) {
-	pp := sp.Persister.GetPartPersister("FAKE")
+	pp, err := sp.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
 	persons, err := pp.FindPersons(&model.PersonsQuery{CamId: camId, MaxLastSeenAt: maxTs, Limit: limit})
 	if err != nil {
 		return nil, err
@@ -213,7 +216,10 @@ func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, 
 // ------------------------------ Private ------------------------------------
 func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) error {
 	sp.logger.Debug("Updating ", len(faces), " faces into DB")
-	pp := sp.Persister.GetPartPersister("FAKE")
+	pp, err := sp.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
 	persIds := make([]string, len(faces))
 	persIdMap := make(map[string]*model.Face)
 	for i, f := range faces {

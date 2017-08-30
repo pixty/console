@@ -4,22 +4,29 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/model"
 )
 
 type (
 	DataController interface {
+		// Orgs and fields
 		InsertOrg(org *model.Organization) (int64, error)
 		GetOrgAndFields(orgId int64) (*model.Organization, []*model.FieldInfo, error)
 		InsertNewFields(orgId int64, fis []*model.FieldInfo) error
 		GetFieldInfos(orgId int64) ([]*model.FieldInfo, error)
 		UpdateFieldInfo(fi *model.FieldInfo) error
 		DeleteFieldInfo(orgId, fldId int64) error
+
+		// Profiles
+		InsertProfile(prf *model.Profile) (int64, error)
+		GetProfile(prfId int64) (*model.Profile, error)
 	}
 
 	dta_controller struct {
 		Persister model.Persister `inject:"persister"`
+		logger    log4g.Logger
 	}
 )
 
@@ -29,21 +36,33 @@ const (
 
 func NewDataController() DataController {
 	dc := new(dta_controller)
+	dc.logger = log4g.GetLogger("pixty.DataController")
 	return dc
 }
 
 func (dc *dta_controller) InsertOrg(org *model.Organization) (int64, error) {
-	mmp := dc.Persister.GetMainPersister()
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return -1, err
+	}
 	return mmp.InsertOrg(org)
 }
 
 func (dc *dta_controller) GetOrgAndFields(orgId int64) (*model.Organization, []*model.FieldInfo, error) {
-	mmp := dc.Persister.GetMainPersister()
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	org, err := mmp.GetOrg(orgId)
 	if err != nil {
 		return nil, nil, err
 	}
-	fis, err := mmp.GetFieldInfos(orgId)
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, nil, err
+	}
+	fis, err := mpp.GetFieldInfos(orgId)
 	return org, fis, err
 }
 
@@ -53,8 +72,11 @@ func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) e
 		return err
 	}
 
-	mmp := dc.Persister.GetMainPersister()
-	efis, err := mmp.GetFieldInfos(orgId)
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	efis, err := mpp.GetFieldInfos(orgId)
 	if err != nil {
 		return err
 	}
@@ -66,17 +88,23 @@ func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) e
 			" fields, but it is going to be " + strconv.Itoa(newCount))
 	}
 
-	return mmp.InsertFieldInfos(fis)
+	return mpp.InsertFieldInfos(fis)
 }
 
 func (dc *dta_controller) GetFieldInfos(orgId int64) ([]*model.FieldInfo, error) {
-	mmp := dc.Persister.GetMainPersister()
-	return mmp.GetFieldInfos(orgId)
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+	return mpp.GetFieldInfos(orgId)
 }
 
 func (dc *dta_controller) UpdateFieldInfo(fi *model.FieldInfo) error {
-	mmp := dc.Persister.GetMainPersister()
-	efi, err := mmp.GetFieldInfo(fi.Id)
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	efi, err := mpp.GetFieldInfo(fi.Id)
 	if err != nil {
 		return err
 	}
@@ -87,12 +115,15 @@ func (dc *dta_controller) UpdateFieldInfo(fi *model.FieldInfo) error {
 	}
 
 	efi.DisplayName = fi.DisplayName
-	return mmp.UpdateFiledInfo(efi)
+	return mpp.UpdateFiledInfo(efi)
 }
 
 func (dc *dta_controller) DeleteFieldInfo(orgId, fldId int64) error {
-	mmp := dc.Persister.GetMainPersister()
-	efi, err := mmp.GetFieldInfo(fldId)
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	efi, err := mpp.GetFieldInfo(fldId)
 	if err != nil {
 		return err
 	}
@@ -101,7 +132,57 @@ func (dc *dta_controller) DeleteFieldInfo(orgId, fldId int64) error {
 		return errors.New("No field Id=" +
 			strconv.FormatInt(efi.Id, 10) + " in the organization")
 	}
-	return mmp.DeleteFieldInfo(efi)
+	return mpp.DeleteFieldInfo(efi)
+}
+
+func (dc *dta_controller) InsertProfile(prf *model.Profile) (int64, error) {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return -1, err
+	}
+
+	err = mpp.Begin()
+	if err != nil {
+		return -1, err
+	}
+	defer mpp.Commit()
+
+	pid, err := mpp.InsertProfile(prf)
+	if err != nil {
+		mpp.Rollback()
+		return -1, err
+	}
+
+	if prf.Meta != nil {
+		for _, pm := range prf.Meta {
+			pm.ProfileId = pid
+		}
+		err = mpp.InsertProfleMetas(prf.Meta)
+		if err != nil {
+			mpp.Rollback()
+			return -1, err
+		}
+	}
+	return pid, nil
+}
+
+func (dc *dta_controller) GetProfile(prfId int64) (*model.Profile, error) {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+
+	prfs, err := mpp.GetProfiles(&model.ProfileQuery{ProfileIds: []int64{prfId}})
+	if err != nil {
+		return nil, err
+	}
+
+	if prfs == nil || len(prfs) == 0 {
+		dc.logger.Debug("No profiles found by id=", prfId)
+		return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find profile by id="+strconv.FormatInt(prfId, 10))
+	}
+
+	return prfs[0], nil
 }
 
 func checkFieldInfo(fi *model.FieldInfo, orgId int64) error {

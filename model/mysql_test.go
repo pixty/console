@@ -12,7 +12,7 @@ func initMysqlPersister() *MysqlPersister {
 	mp.Config.MysqlDatasource = "pixty@/pixty_test?charset=utf8"
 	mp.DiInit()
 
-	pp := mp.GetPartPersister("ttt")
+	pp, _ := mp.GetPartitionTx("ttt")
 	pp.ExecQuery("DROP DATABASE pixty_test")
 	pp.ExecScript("scheme.sql")
 	return mp
@@ -21,7 +21,7 @@ func initMysqlPersister() *MysqlPersister {
 func TestFacePutGet(t *testing.T) {
 	mp := initMysqlPersister()
 
-	pp := mp.GetPartPersister("ttt")
+	pp, _ := mp.GetPartitionTx("ttt")
 	f := new(Face)
 	f.V128D = common.NewV128D()
 	f.V128D.FillRandom()
@@ -49,7 +49,7 @@ func TestFacePutGet(t *testing.T) {
 
 func TestFacePutGetMany(t *testing.T) {
 	mp := initMysqlPersister()
-	pp := mp.GetPartPersister("ttt")
+	pp, _ := mp.GetPartitionTx("ttt")
 
 	f1 := new(Face)
 	f1.PersonId = "P1"
@@ -72,7 +72,7 @@ func TestFacePutGetMany(t *testing.T) {
 	}
 
 	t.Log("Created new faces reading P2 now")
-	faces, err := pp.FindFaces(&FacesQuery{PersonId: "P2"})
+	faces, err := pp.FindFaces(&FacesQuery{PersonIds: []string{"P2"}})
 	if err != nil {
 		t.Fatal("Fail when getting face, err=", err)
 	}

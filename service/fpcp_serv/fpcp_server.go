@@ -140,7 +140,11 @@ func (fs *FPCPServer) checkSession(ctx context.Context) string {
 }
 
 func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
-	cam, err := fs.Persister.GetMainPersister().FindCameraById(authToken.Access)
+	mtx, err := fs.Persister.GetMainTx()
+	if err != nil {
+		return "", err
+	}
+	cam, err := mtx.FindCameraById(authToken.Access)
 	if err != nil {
 		return "", err
 	}

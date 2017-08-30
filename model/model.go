@@ -99,11 +99,33 @@ type (
 
 	// Persister is an interface which provides an access to persistent layer
 	Persister interface {
-		GetMainPersister() MainPersister
-		GetPartPersister(partId string) PartPersister
+		// Returns an TX objecct for accessing to Main DB
+		GetMainTx() (MainTx, error)
+		// Returns an TX object for accessing to Pratitioned DB
+		GetPartitionTx(partId string) (PartTx, error)
 	}
 
-	GenericPersister interface {
+	// The Tx object allows to control general DB operations. It also supports
+	// explicit transactions control via BeginXXX() methods, where XXX is isolation
+	// level. If a transaction was opened, it MUST be closed via Rollback() or Commit()
+	// methods. It is good style to write ``` defer tx.Close()```
+	//
+	// If transaction was not opened by a BeginXXX method, every statement is safe
+	// to be run and it will be executed in its own transaction.
+	//
+	// Implementation is not thread safe, so please keep eye on not use same
+	// object in multi-go routines call, or guard calls accordingly.
+	Tx interface {
+		// Begins transaction with Serializable isolation level, will
+		// close previous transaction if it was opened, but not closed before
+		BeginSerializable() error
+
+		// Begin transaction with default isolation level. The method closes
+		// previous transaction if it was opened on the moment of the call
+		Begin() error
+		Rollback() error
+		Commit() error
+
 		// Executes provided SQL query
 		ExecQuery(sqlQuery string, params ...interface{}) error
 		// Executes SQL script which is in the provided file
@@ -111,24 +133,19 @@ type (
 	}
 
 	// An transactional persister (has context dependant time)
-	MainPersister interface {
-		GenericPersister
+	MainTx interface {
+		Tx
 
 		FindCameraById(camId string) (*Camera, error)
 
 		// orgs
 		InsertOrg(org *Organization) (int64, error)
 		GetOrg(orgId int64) (*Organization, error)
-		GetFieldInfo(fldId int64) (*FieldInfo, error)
-		GetFieldInfos(orgId int64) ([]*FieldInfo, error)
-		InsertFieldInfos(fldInfo []*FieldInfo) error
-		UpdateFiledInfo(fldInfo *FieldInfo) error
-		DeleteFieldInfo(fldInfo *FieldInfo) error
 	}
 
 	// Partitioned persister
-	PartPersister interface {
-		GenericPersister
+	PartTx interface {
+		Tx
 
 		// ==== Faces ====
 		// returns Face by its Id, or error
@@ -148,7 +165,17 @@ type (
 		UpdatePerson(person *Person) error
 		UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error
 
+		// ==== FieldInfos ====
+		GetFieldInfo(fldId int64) (*FieldInfo, error)
+		GetFieldInfos(orgId int64) ([]*FieldInfo, error)
+		InsertFieldInfos(fldInfo []*FieldInfo) error
+		UpdateFiledInfo(fldInfo *FieldInfo) error
+		DeleteFieldInfo(fldInfo *FieldInfo) error
+
 		// ==== Profiles ====
+		InsertProfile(prf *Profile) (int64, error)
+		InsertProfleMetas(pms []*ProfileMeta) error
+		GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
 		GetProfiles(prQuery *ProfileQuery) ([]*Profile, error)
 		// Looking for profiles for requiested match groups
 		// profileId -> mg
