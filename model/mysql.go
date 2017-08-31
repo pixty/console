@@ -422,7 +422,17 @@ func (mpp *msql_part_tx) GetPersonById(pId string) (*Person, error) {
 		}
 		return p, nil
 	}
-	return nil, nil
+	return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find person by id="+pId)
+}
+
+func (mpp *msql_part_tx) CheckPersonInOrg(pId string, orgId int64) (bool, error) {
+	rows, err := mpp.executor().Query("SELECT p.id FROM person AS p WHERE p.id=? AND (SELECT id FROM camera WHERE org_id=? AND id=p.cam_id) IS NOT NULL", pId, orgId)
+	if err != nil {
+		mpp.logger.Warn("CheckPersonInOrg(): err=", err)
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
 }
 
 func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
@@ -713,6 +723,35 @@ func (mpp *msql_part_tx) GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
 		res = append(res, pm)
 	}
 	return res, nil
+}
+
+func (mpp *msql_part_tx) CheckProfileInOrg(prId, orgId int64) (bool, error) {
+	rows, err := mpp.executor().Query("SELECT p.id FROM profile AS p WHERE p.id=? AND p.org_id=?", prId, orgId)
+	if err != nil {
+		mpp.logger.Warn("CheckProfileInOrg(): err=", err)
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
+}
+
+func (mpp *msql_part_tx) DeleteProfile(prfId int64) error {
+	mpp.logger.Debug("DeleteProfile(): deleting profile prfId=", prfId)
+	_, err := mpp.executor().Exec("DELETE FROM profile WHERE id=?", prfId)
+	return err
+
+}
+
+func (mpp *msql_part_tx) DeleteAllProfileMetas(prfId int64) error {
+	mpp.logger.Debug("DeleteAllProfileMetas(): deleting all profile metas by prfId=", prfId)
+	_, err := mpp.executor().Exec("DELETE FROM profile_meta WHERE profile_id=?", prfId)
+	return err
+}
+
+func (mpp *msql_part_tx) UpdateProfile(prf *Profile) error {
+	mpp.logger.Debug("UpdateProfile(): updating profile ", prf)
+	_, err := mpp.executor().Exec("UPDATE profile WHERE id=? SET PictureId=?", prf.Id, prf.PictureId)
+	return err
 }
 
 func (mpp *msql_part_tx) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) {

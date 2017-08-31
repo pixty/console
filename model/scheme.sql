@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS `camera` (
 	`secret_key`            VARCHAR(50),
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `org_id_idx` USING BTREE (org_id)
+	INDEX `org_id_idx` USING BTREE (org_id),
+	FOREIGN KEY (`org_id`) REFERENCES organization(id) ON DELETE RESTRICT
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `person` (
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS `person` (
 	INDEX `cam_id_idx` USING BTREE (cam_id),
 	INDEX `last_seen_idx` USING BTREE (last_seen),
 	INDEX `profile_id_idx` USING BTREE (profile_id),
-	INDEX `match_group_idx` USING BTREE (match_group)
+	INDEX `match_group_idx` USING BTREE (match_group),
+	FOREIGN KEY (`cam_id`) REFERENCES camera(id) ON DELETE CASCADE
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `face` (
@@ -79,7 +81,8 @@ CREATE TABLE IF NOT EXISTS `face` (
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `person_id_idx` USING BTREE (person_id),
-	INDEX `captured_at_idx` USING BTREE (captured_at)
+	INDEX `captured_at_idx` USING BTREE (captured_at),
+	FOREIGN KEY (`person_id`) REFERENCES person(id) ON DELETE CASCADE
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile` (
@@ -88,7 +91,8 @@ CREATE TABLE IF NOT EXISTS `profile` (
 	`picture_id`             VARCHAR(255)     NOT NULL, 
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `org_id_idx` USING BTREE (org_id)
+	INDEX `org_id_idx` USING BTREE (org_id),
+	FOREIGN KEY (`org_id`) REFERENCES organization(id) ON DELETE RESTRICT
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile_meta` (
@@ -102,4 +106,4 @@ CREATE TABLE IF NOT EXISTS `profile_meta` (
 
 #After creation for test camera
 #insert into organization(id, name) values(1, 'pixty');
-#insert into camera(id, org_id, secret_key) values("pixtyTestCam", 1, "1234");
+#insert into camera(id, org_id, secret_key) values("ptt", 1, "1234");

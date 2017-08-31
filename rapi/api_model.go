@@ -28,18 +28,18 @@ type (
 	}
 
 	Profile struct {
-		Id        int64  `json:"id"`
-		OrgId     int64  `json:"orgId"`
-		AvatarUrl string `json:"avatarUrl"`
+		Id        int64   `json:"id, omitempty"`
+		OrgId     int64   `json:"orgId, omitempty"`
+		AvatarUrl *string `json:"avatarUrl, omitempty"`
 
 		// Key-Value pairs for the organization
 		Attributes []*ProfileAttribute `json:"attributes,omitempty"`
 	}
 
 	ProfileAttribute struct {
-		FieldId int64  `json:"fieldId"`
-		Name    string `json:"Name"`
-		Value   string `json:"value"`
+		FieldId *int64  `json:"fieldId, omitempty"`
+		Name    *string `json:"name, omitempty"`
+		Value   *string `json:"value, omitempty"`
 	}
 
 	Person struct {
@@ -47,12 +47,13 @@ type (
 		CamId      *string            `json:"camId,omitempty"`
 		LastSeenAt common.ISO8601Time `json:"lastSeenAt"`
 		AvatarUrl  string             `json:"avatarUrl"`
+		ProfileId  *int64             `json:"profileId,omitempty"`
 
 		// Contains Person <-> profile association. Could be nil, if there is
 		// no such association. This assignment is done manually only.
 		Profile  *Profile       `json:"profile"`
-		Matches  []*Profile     `json:"matches"`
-		Pictures []*PictureInfo `json:"pictures"`
+		Matches  []*Profile     `json:"matches,omitempty"`
+		Pictures []*PictureInfo `json:"pictures,omitempty"`
 	}
 
 	PictureInfo struct {

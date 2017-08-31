@@ -158,6 +158,7 @@ type (
 		// ==== Persons ====
 		// returns Person by its Id, or error
 		GetPersonById(pId string) (*Person, error)
+		CheckPersonInOrg(pId string, orgId int64) (bool, error)
 		FindPersons(pQuery *PersonsQuery) ([]*Person, error)
 		// insert new person, returns the new record id, or error, if it happens
 		InsertPerson(person *Person) error
@@ -173,9 +174,13 @@ type (
 		DeleteFieldInfo(fldInfo *FieldInfo) error
 
 		// ==== Profiles ====
+		CheckProfileInOrg(prId, orgId int64) (bool, error)
 		InsertProfile(prf *Profile) (int64, error)
+		UpdateProfile(prf *Profile) error
+		DeleteProfile(prfId int64) error
 		InsertProfleMetas(pms []*ProfileMeta) error
 		GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
+		DeleteAllProfileMetas(prfId int64) error
 		GetProfiles(prQuery *ProfileQuery) ([]*Profile, error)
 		// Looking for profiles for requiested match groups
 		// profileId -> mg

@@ -140,6 +140,13 @@ func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, 
 	if err != nil {
 		return nil, err
 	}
+	//transaction
+	err = pp.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer pp.Commit()
+
 	persons, err := pp.FindPersons(&model.PersonsQuery{CamId: camId, MaxLastSeenAt: maxTs, Limit: limit})
 	if err != nil {
 		return nil, err
@@ -220,6 +227,12 @@ func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) e
 	if err != nil {
 		return err
 	}
+	err = pp.Begin()
+	if err != nil {
+		return err
+	}
+	defer pp.Commit()
+
 	persIds := make([]string, len(faces))
 	persIdMap := make(map[string]*model.Face)
 	for i, f := range faces {
@@ -261,6 +274,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) e
 		err := pp.InsertPersons(newPers)
 		if err != nil {
 			sp.logger.Error("Could not insert new persons, err=", err)
+			pp.Rollback()
 			return err
 		}
 	}
@@ -268,6 +282,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) e
 	err = pp.InsertFaces(faces)
 	if err != nil {
 		sp.logger.Error("Could not insert new faces, err=", err)
+		pp.Rollback()
 		return err
 	}
 	return nil

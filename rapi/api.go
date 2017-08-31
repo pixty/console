@@ -71,6 +71,10 @@ func (a *api) DiPostConstruct() {
 	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
 	a.ge.POST("/profiles", a.h_POST_profiles)
 	a.ge.GET("/profiles/:prfId", a.h_GET_profiles_prfId)
+	a.ge.PUT("/profiles/:prfId", a.h_PUT_profiles_prfId)
+	a.ge.DELETE("/profiles/:prfId", a.h_DELETE_profiles_prfId)
+	a.ge.GET("/persons/:persId", a.h_GET_persons_persId)
+	a.ge.PUT("/persons/:persId", a.h_PUT_persons_persId)
 }
 
 // =============================== Handlers ==================================
@@ -246,8 +250,6 @@ func (a *api) h_DELETE_orgs_orgId_fields_fldId(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// ==========================
-
 // Returns authorized organization id, or error if not authenticated for an org
 func getOrgId(c *gin.Context) (int64, error) {
 	//TODO fix me
@@ -292,14 +294,6 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
-// GET /profiles - o, u, sa -vs query
-func (a *api) h_GET_profiles(c *gin.Context) {
-	//	orgId, err := getOrgId(c)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-}
-
 // GET /profiles/:prfId - o, u, sa
 func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 	prfId, err := parseInt64Param(c, "prfId")
@@ -307,7 +301,7 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 		return
 	}
 
-	a.logger.Info("POST /profiles/", prfId)
+	a.logger.Info("GET /profiles/", prfId)
 	orgId, err := getOrgId(c)
 	if a.errorResponse(c, err) {
 		return
@@ -322,43 +316,106 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 		a.errorResponse(c, common.NewError(common.ERR_NOT_FOUND, "No profile with id="+strconv.FormatInt(prfId, 10)))
 		return
 	}
-	c.JSON(http.StatusOK, a.profileToProfile(p))
+	c.JSON(http.StatusOK, a.profile2mprofile(p))
 }
 
+// Updates profile. All provided values will be replaced, all other ones will be lost
 // PUT /profiles/:profileId - o, u, sa
 func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
-	//	orgId, err := getOrgId(c)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
+	prfId, err := parseInt64Param(c, "prfId")
+	if a.errorResponse(c, err) {
+		return
+	}
+	a.logger.Debug("PUT /profiles/", prfId)
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	var p Profile
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+		return
+	}
+
+	prf, err := a.profile2mProfile(&p)
+	if a.errorResponse(c, err) {
+		return
+	}
+	prf.OrgId = orgId
+	prf.Id = prfId
+
+	err = a.Dc.UpdateProfile(prf)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // DELETE /profiles/:profileId - o, u, sa
 func (a *api) h_DELETE_profiles_prfId(c *gin.Context) {
-	//	orgId, err := getOrgId(c)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-}
+	prfId, err := parseInt64Param(c, "prfId")
+	if a.errorResponse(c, err) {
+		return
+	}
+	a.logger.Debug("DELETE /profiles/", prfId)
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
 
-// POST /profiles/:profId/persons/:persId - o, u, sa
-func (a *api) h_POST_profiles_prfId_persons_persId(c *gin.Context) {
-
-}
-
-// DELETE /profiles/:profId/persons/:persId
-func (a *api) h_DELETE_profiles_prfId_persons_persId(c *gin.Context) {
-
-}
-
-// GET /persons
-func (a *api) h_GET_persons(c *gin.Context) {
-
+	err = a.Dc.DeleteProfile(prfId, orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // GET /persons/:persId
 func (a *api) h_GET_persons_persId(c *gin.Context) {
+	persId := c.Param("persId")
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	// Parse query
+	q := c.Request.URL.Query()
+	includeDetails := parseBoolQueryParam("details", q, false)
+	includeMeta := parseBoolQueryParam("meta", q, false)
+
+	a.logger.Debug("GET /persons/", persId, "?details=", includeDetails, "&meta=", includeMeta, " [orgId=", orgId, "]")
+
+	desc, err := a.Dc.DescribePerson(persId, orgId, includeDetails, includeMeta)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, a.prsnDesc2Person(desc))
+}
+
+// Only the following fields must be both provided and will be updated:
+// - AvatarUrl
+// - ProfileId
+// PUT /persons/:persId
+func (a *api) h_PUT_persons_persId(c *gin.Context) {
+	persId := c.Param("persId")
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
+	var p Person
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+		return
+	}
+
+	p.Id = persId
+	mp, err := a.person2mperson(&p)
+	if a.errorResponse(c, err) {
+		return
+	}
+	if a.errorResponse(c, a.Dc.UpdatePerson(mp, orgId)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // GET /cameras
@@ -379,20 +436,6 @@ func (a *api) h_GET_cameras_camId(c *gin.Context) {
 // DELETE /cameras/:camId
 func (a *api) h_DELETE_cameras_camId(c *gin.Context) {
 
-}
-
-// GET /profiles/:profileId
-func (a *api) h_GET_profile(c *gin.Context, profileId common.Id) {
-	a.logger.Debug("GET /profiles/", profileId)
-	//	rctx := a.newRequestCtx(c)
-
-	//	prf := rctx.getProfile(profileId)
-	//	if prf == nil {
-	//		c.Status(http.StatusNotFound)
-	//		return
-	//	}
-
-	//	c.JSON(http.StatusOK, prf)
 }
 
 // GET /profiles/:profileId/persons
@@ -520,6 +563,31 @@ func (a *api) String() string {
 	return "api: {}"
 }
 
+func ptr2int64(i *int64, defVal int64) int64 {
+	if i == nil {
+		return defVal
+	}
+	return *i
+}
+
+func ptr2string(s *string, defVal string) string {
+	if s == nil {
+		return defVal
+	}
+	return *s
+}
+
+func toPtrInt64(v int64) *int64 {
+	return &v
+}
+
+func toPtrString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 // Will block invoker until an error happens
 // If the application is interrupted by SIGINT, it will complete gracefully and return
 func (a *api) Run() {
@@ -543,6 +611,18 @@ func parseInt64QueryParam(prmName string, vals url.Values) (int64, error) {
 	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
 }
 
+func parseBoolQueryParam(prmName string, vals url.Values, defVal bool) bool {
+	v := vals[prmName]
+	if v == nil || len(v) == 0 {
+		return defVal
+	}
+	b, err := strconv.ParseBool(v[0])
+	if err != nil {
+		return defVal
+	}
+	return b
+}
+
 func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 	prm := c.Param(prmName)
 	if prm == "" {
@@ -563,6 +643,25 @@ func (a *api) imgURL(imgId string) string {
 	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
 }
 
+func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {
+	p := a.mperson2person(prsnDesc.Person, nil)
+	if prsnDesc.Profiles != nil {
+		mchs := make([]*Profile, 0, len(prsnDesc.Profiles))
+		for _, mp := range prsnDesc.Profiles {
+			pr := a.profile2mprofile(mp)
+			if mp.Id == prsnDesc.Person.ProfileId {
+				p.Profile = pr
+			}
+			mchs = append(mchs, pr)
+		}
+		if prsnDesc.Person.MatchGroup > 0 {
+			p.Matches = mchs
+		}
+	}
+	p.Pictures = a.facesToPictureInfos(prsnDesc.Faces)
+	return p
+}
+
 func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 	prfMap := a.profilesToProfiles(scnTl.Profiles)
 	mg2Profs := make(map[int64][]*Profile)
@@ -581,7 +680,7 @@ func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 	stl := new(SceneTimeline)
 	stl.Persons = make([]*Person, len(scnTl.Persons))
 	for i, p := range scnTl.Persons {
-		prsn := a.personToPerson(p, prfMap)
+		prsn := a.mperson2person(p, prfMap)
 		prsn.CamId = &scnTl.CamId
 		fcs, ok := scnTl.Faces[p.Id]
 		if ok {
@@ -601,30 +700,49 @@ func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 	return stl
 }
 
-func (a *api) personToPerson(p *model.Person, profs map[int64]*Profile) *Person {
+func (a *api) mperson2person(p *model.Person, profs map[int64]*Profile) *Person {
 	ps := new(Person)
 	ps.Id = p.Id
 	ps.AvatarUrl = a.imgURL(p.PictureId)
 	ps.LastSeenAt = common.Timestamp(p.LastSeenAt).ToISO8601Time()
-	if pr, ok := profs[p.ProfileId]; ok {
-		ps.Profile = pr
+	ps.ProfileId = toPtrInt64(p.ProfileId)
+	if profs != nil {
+		if pr, ok := profs[p.ProfileId]; ok {
+			ps.Profile = pr
+		}
 	}
 	return ps
 }
 
+func (a *api) person2mperson(p *Person) (*model.Person, error) {
+	ps := new(model.Person)
+	ps.Id = p.Id
+	if p.AvatarUrl != "" {
+		id, err := common.ImgParseFileNameNotDeep(p.AvatarUrl)
+		if err != nil {
+			return nil, err
+		}
+		ps.PictureId = id
+	}
+	ps.ProfileId = ptr2int64(p.ProfileId, -1)
+	return ps, nil
+}
+
 func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*Profile {
 	res := make(map[int64]*Profile)
-	for pid, p := range profiles {
-		res[pid] = a.profileToProfile(p)
+	if profiles != nil && len(profiles) > 0 {
+		for pid, p := range profiles {
+			res[pid] = a.profile2mprofile(p)
+		}
 	}
 	return res
 }
 
-func (a *api) profileToProfile(prf *model.Profile) *Profile {
+func (a *api) profile2mprofile(prf *model.Profile) *Profile {
 	p := new(Profile)
 	p.Id = prf.Id
 	p.OrgId = prf.OrgId
-	p.AvatarUrl = a.imgURL(prf.PictureId)
+	p.AvatarUrl = toPtrString(a.imgURL(prf.PictureId))
 	p.Attributes = a.metasToAttributes(prf.Meta)
 	return p
 }
@@ -642,9 +760,9 @@ func (a *api) metasToAttributes(pms []*model.ProfileMeta) []*ProfileAttribute {
 
 func (a *api) metaToAttribute(prf *model.ProfileMeta) *ProfileAttribute {
 	pa := new(ProfileAttribute)
-	pa.FieldId = prf.FieldId
-	pa.Name = prf.DisplayName
-	pa.Value = prf.Value
+	pa.FieldId = &prf.FieldId
+	pa.Name = toPtrString(prf.DisplayName)
+	pa.Value = toPtrString(prf.Value)
 	return pa
 }
 
@@ -730,8 +848,9 @@ func (a *api) profile2mProfile(p *Profile) (*model.Profile, error) {
 	prf := new(model.Profile)
 	prf.Id = p.Id
 	prf.OrgId = p.OrgId
-	if p.AvatarUrl != "" {
-		id, err := common.ImgParseFileNameNotDeep(p.AvatarUrl)
+	avtUrl := ptr2string(p.AvatarUrl, "")
+	if avtUrl != "" {
+		id, err := common.ImgParseFileNameNotDeep(avtUrl)
 		if err != nil {
 			return nil, err
 		}
@@ -756,9 +875,9 @@ func (a *api) prfAttrbs2prfMetas(pas []*ProfileAttribute) []*model.ProfileMeta {
 // It never fills ProfileId(!!!)
 func (a *api) prfAttrb2prfMeta(pa *ProfileAttribute) *model.ProfileMeta {
 	pm := new(model.ProfileMeta)
-	pm.FieldId = pa.FieldId
-	pm.Value = pa.Value
-	pm.DisplayName = pa.Name
+	pm.FieldId = ptr2int64(pa.FieldId, 0)
+	pm.Value = ptr2string(pa.Value, "")
+	pm.DisplayName = ptr2string(pa.Name, "")
 	return pm
 }
 
