@@ -75,6 +75,11 @@ func (a *api) DiPostConstruct() {
 	a.ge.DELETE("/profiles/:prfId", a.h_DELETE_profiles_prfId)
 	a.ge.GET("/persons/:persId", a.h_GET_persons_persId)
 	a.ge.PUT("/persons/:persId", a.h_PUT_persons_persId)
+	a.ge.GET("/cameras", a.h_GET_cameras)
+	a.ge.POST("/cameras", a.h_POST_cameras)
+	a.ge.GET("/cameras/:camId", a.h_GET_cameras_camId)
+	a.ge.GET("/cameras/:camId/name-available", a.h_GET_cameras_camId_nameAvailable)
+	a.ge.POST("/cameras/:camId/newkey", a.h_POST_cameras_camId_newkey)
 }
 
 // =============================== Handlers ==================================
@@ -402,6 +407,7 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	if a.errorResponse(c, err) {
 		return
 	}
+	a.logger.Debug("PUT /persons/", persId, " [orgId=", orgId, "]")
 	var p Person
 	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
 		return
@@ -420,111 +426,91 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 
 // GET /cameras
 func (a *api) h_GET_cameras(c *gin.Context) {
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	cams, err := a.Dc.GetAllCameras(orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, a.mcams2cams(cams))
 }
 
 // POST /cameras
 func (a *api) h_POST_cameras(c *gin.Context) {
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
 
+	var cam Camera
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&cam))) {
+		return
+	}
+	a.logger.Info("POST /cameras ", cam, " for orgId=", orgId)
+
+	cam.OrgId = orgId
+	err = a.Dc.NewCamera(a.cam2mcam(&cam))
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	w := c.Writer
+	uri := composeURI(c.Request, cam.Id)
+	a.logger.Debug("New camera ", uri, " has been just created")
+	w.Header().Set("Location", uri)
+	c.Status(http.StatusCreated)
 }
 
 // GET /cameras/:camId
 func (a *api) h_GET_cameras_camId(c *gin.Context) {
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
+	camId := c.Param("camId")
 
+	mcam, err := a.Dc.GetCameraById(camId)
+	if a.errorResponse(c, err) {
+		return
+	}
+	if mcam.OrgId != orgId {
+		a.logger.Warn("Recuested info for camId=", camId, ", but from another orgId=", orgId)
+		c.JSON(http.StatusNotFound, "Camera camId="+camId+" not found.")
+		return
+	}
+	c.JSON(http.StatusOK, a.mcam2cam(mcam))
 }
 
-// DELETE /cameras/:camId
-func (a *api) h_DELETE_cameras_camId(c *gin.Context) {
+// GET /cameras/:camId/name-available
+func (a *api) h_GET_cameras_camId_nameAvailable(c *gin.Context) {
+	camId := c.Param("camId")
 
+	mcam, err := a.Dc.GetCameraById(camId)
+	if !common.CheckError(err, common.ERR_NOT_FOUND) && a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, mcam == nil)
 }
 
-// GET /profiles/:profileId/persons
-func (a *api) h_GET_profile_persons(c *gin.Context, profileId common.Id) {
-	a.logger.Debug("GET /profiles/", profileId)
-	//	rctx := a.newRequestCtx(c)
-	//	now := common.CurrentTimestamp()
+// POST /cameras/:camId/newkey
+func (a *api) h_POST_cameras_camId_newkey(c *gin.Context) {
+	orgId, err := getOrgId(c)
+	if a.errorResponse(c, err) {
+		return
+	}
+	camId := c.Param("camId")
 
-	//	pers, err := rctx.getPersonsByQuery(&common.PersonsQuery{ProfileId: profileId, Limit: 100, FromTime: now})
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	c.JSON(http.StatusOK, pers)
-}
-
-// POST /profiles/:profileId/persons
-func (a *api) h_POST_profile_persons(c *gin.Context, profileId common.Id) {
-	a.logger.Info("POST /profiles/", profileId, "/persons")
-	//	rctx := a.newRequestCtx(c)
-	//	var person Person
-	//	err := c.Bind(&person)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	err = rctx.associatePersonToProfile(&person, profileId)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	r := c.Request
-	//	w := c.Writer
-	//	w.Header().Set("Location", composeURI(r, string(person.Id)))
-}
-
-// GET /profiles/:profileId/persons/:personId
-func (a *api) h_GET_profile_persons_person(c *gin.Context, profileId common.Id, personId common.Id) {
-	a.logger.Debug("GET /profiles/", profileId, "/persons/", personId)
-	//	rctx := a.newRequestCtx(c)
-	//	pers, err := rctx.getPersonsByQuery(&common.PersonsQuery{PersonIds: []common.Id{personId}})
-	//	if pers == nil || len(pers) != 1 {
-	//		a.logger.Warn("Could not find personId=", personId, ", err=", err)
-	//		c.Status(http.StatusNotFound)
-	//		return
-	//	}
-
-	//	prsn := pers[0]
-	//	if prsn.Profile == nil || prsn.Profile.Id != profileId {
-	//		a.logger.Warn("The person person=", prsn, " is not associated with profileId=", profileId)
-	//		c.Status(http.StatusNotFound)
-	//		return
-	//	}
-
-	//	c.JSON(http.StatusOK, prsn)
-}
-
-// POST /profiles/
-func (a *api) h_POST_profile(c *gin.Context) {
-	a.logger.Info("POST /profiles/")
-	//	rctx := a.newRequestCtx(c)
-
-	//	var profile Profile
-	//	err := c.Bind(&profile)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	prfId, err := rctx.newProfile(&profile)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	r := c.Request
-	//	w := c.Writer
-	//	w.Header().Set("Location", composeURI(r, string(prfId)))
-}
-
-// GET /pictures/:picId
-func (a *api) h_GET_pictures_pic(c *gin.Context, picId common.Id) {
-	a.logger.Debug("GET /pictures/", picId)
-	//	rctx := a.newRequestCtx(c)
-
-	//	pi, err := rctx.getPictureInfo(picId)
-	//	if a.errorResponse(c, err) {
-	//		return
-	//	}
-
-	//	c.JSON(http.StatusOK, pi)
+	mc, sk, err := a.Dc.NewCameraKey(camId, orgId)
+	if a.errorResponse(c, err) {
+		return
+	}
+	cam := a.mcam2cam(mc)
+	cam.SecretKey = toPtrString(sk)
+	a.logger.Info("New secret key was requested and successfully generated for camId=", camId, ", orgId=", orgId)
+	c.JSON(http.StatusOK, cam)
 }
 
 // GET /images/:imgName
@@ -641,6 +627,32 @@ func (a *api) imgURL(imgId string) string {
 		return ""
 	}
 	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
+}
+
+func (a *api) mcams2cams(mcams []*model.Camera) []*Camera {
+	if mcams == nil {
+		return []*Camera{}
+	}
+	res := make([]*Camera, len(mcams))
+	for i, mc := range mcams {
+		res[i] = a.mcam2cam(mc)
+	}
+	return res
+}
+
+func (a *api) mcam2cam(mcam *model.Camera) *Camera {
+	cam := new(Camera)
+	cam.Id = mcam.Id
+	cam.OrgId = mcam.OrgId
+	cam.HasSecretKey = mcam.SecretKey != ""
+	return cam
+}
+
+func (a *api) cam2mcam(cam *Camera) *model.Camera {
+	mcam := new(model.Camera)
+	mcam.Id = cam.Id
+	mcam.OrgId = cam.OrgId
+	return mcam
 }
 
 func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {

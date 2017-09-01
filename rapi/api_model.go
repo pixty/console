@@ -23,14 +23,16 @@ type (
 	}
 
 	Camera struct {
-		Id    string `json:"id"`
-		OrgId string `json:"orgId"`
+		Id           string  `json:"id"`
+		OrgId        int64   `json:"orgId"`
+		HasSecretKey bool    `json:"hasSecretKey"`
+		SecretKey    *string `json:"secretKey,omitempty"`
 	}
 
 	Profile struct {
 		Id        int64   `json:"id, omitempty"`
-		OrgId     int64   `json:"orgId, omitempty"`
-		AvatarUrl *string `json:"avatarUrl, omitempty"`
+		OrgId     int64   `json:"orgId,omitempty"`
+		AvatarUrl *string `json:"avatarUrl,omitempty"`
 
 		// Key-Value pairs for the organization
 		Attributes []*ProfileAttribute `json:"attributes,omitempty"`

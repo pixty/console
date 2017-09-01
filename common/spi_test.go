@@ -70,6 +70,14 @@ func TestV128Conv(t *testing.T) {
 	}
 }
 
+func TestNewSecretKey(t *testing.T) {
+	log := log4g.GetLogger("sk")
+	for i := 0; i < 10; i++ {
+		nsc := NewSecretKey()
+		log.Info(nsc, " and it's hash=", Hash(nsc))
+	}
+}
+
 func newTestV128D() V128D {
 	res := NewV128D()
 	return res.FillRandom()

@@ -1,6 +1,8 @@
 package common
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -85,11 +87,13 @@ type (
 )
 
 const (
-	ID_NULL                 = ""
-	TIMESTAMP_NA  Timestamp = 0
-	ERR_NOT_FOUND           = 1
+	ID_NULL                   = ""
+	TIMESTAMP_NA    Timestamp = 0
+	ERR_NOT_FOUND             = 1
+	ERR_INVALID_VAL           = 2
 
-	V128D_SIZE = 512 // 128 values by 4 bytes each
+	V128D_SIZE          = 512 // 128 values by 4 bytes each
+	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_&^-()@#$%"
 )
 
 // ================================= Misc ====================================
@@ -104,6 +108,22 @@ func NewId() Id {
 func DoesFileExist(fileName string) bool {
 	_, err := os.Stat(fileName)
 	return !os.IsNotExist(err)
+}
+
+func NewSecretKey() string {
+	uid := uuid.NewV4()
+	val := []byte{}
+	ab := len(SECRET_KEY_ALPHABET)
+	for i := 0; i < len(uid); i++ {
+		idx := int(uid[i]) % ab
+		val = append(val, SECRET_KEY_ALPHABET[idx])
+	}
+	return string(val)
+}
+
+func Hash(password string) string {
+	h := sha256.Sum256([]byte(password))
+	return base64.StdEncoding.EncodeToString(h[:])
 }
 
 // ================================ Error ====================================

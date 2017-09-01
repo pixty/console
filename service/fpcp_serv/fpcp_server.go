@@ -149,7 +149,7 @@ func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
 		return "", err
 	}
 
-	if cam == nil || cam.SecretKey != authToken.Secret {
+	if cam == nil || cam.SecretKey != common.Hash(authToken.Secret) {
 		fs.log.Info("Cannot authenticate by access_key=", authToken.Access, ", not found or wrong secret key")
 		return "", nil
 	}

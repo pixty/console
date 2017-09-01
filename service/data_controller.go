@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"regexp"
 	"strconv"
 
 	"github.com/jrivets/log4g"
@@ -18,6 +19,12 @@ type (
 		GetFieldInfos(orgId int64) ([]*model.FieldInfo, error)
 		UpdateFieldInfo(fi *model.FieldInfo) error
 		DeleteFieldInfo(orgId, fldId int64) error
+
+		//Cameras
+		GetCameraById(camId string) (*model.Camera, error)
+		GetAllCameras(orgId int64) ([]*model.Camera, error)
+		NewCamera(mcam *model.Camera) error
+		NewCameraKey(camId string, orgId int64) (*model.Camera, string, error)
 
 		// Profiles
 		InsertProfile(prf *model.Profile) (int64, error)
@@ -49,10 +56,19 @@ const (
 	cOrgMaxFieldsCount = 20
 )
 
+var camIdRegexp = regexp.MustCompile(`^[a-zA-Z]{1}([0-9a-zA-Z-_]+){2,39}$`)
+
 func NewDataController() DataController {
 	dc := new(dta_controller)
 	dc.logger = log4g.GetLogger("pixty.DataController")
 	return dc
+}
+
+func isCamIdValid(camId string) error {
+	if !camIdRegexp.MatchString(camId) {
+		return common.NewError(common.ERR_INVALID_VAL, "Invalid cameraId="+camId+", expected string up to 40 chars length.")
+	}
+	return nil
 }
 
 func (dc *dta_controller) InsertOrg(org *model.Organization) (int64, error) {
@@ -160,6 +176,71 @@ func (dc *dta_controller) DeleteFieldInfo(orgId, fldId int64) error {
 			strconv.FormatInt(efi.Id, 10) + " in the organization")
 	}
 	return mpp.DeleteFieldInfo(efi)
+}
+
+//Cameras
+func (dc *dta_controller) GetCameraById(camId string) (*model.Camera, error) {
+	err := isCamIdValid(camId)
+	if err != nil {
+		return nil, err
+	}
+
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+
+	return mpp.GetCameraById(camId)
+}
+
+func (dc *dta_controller) GetAllCameras(orgId int64) ([]*model.Camera, error) {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+
+	return mpp.FindCameras(&model.CameraQuery{OrgId: orgId})
+}
+
+func (dc *dta_controller) NewCamera(cam *model.Camera) error {
+	err := isCamIdValid(cam.Id)
+	if err != nil {
+		return err
+	}
+
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+
+	return mpp.InsertCamera(cam)
+
+}
+
+func (dc *dta_controller) NewCameraKey(camId string, orgId int64) (*model.Camera, string, error) {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, "", err
+	}
+
+	cam, err := mpp.GetCameraById(camId)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if cam.OrgId != orgId {
+		dc.logger.Warn("The camera camId=", camId, " not in the target orgId=", orgId, " reports not found...")
+		return nil, "", common.NewError(common.ERR_NOT_FOUND, "No camera with id="+camId)
+	}
+
+	sk := common.NewSecretKey()
+	hash := common.Hash(sk)
+	cam.SecretKey = hash
+	err = mpp.UpdateCamera(cam)
+	if err != nil {
+		return nil, "", err
+	}
+	return cam, sk, nil
 }
 
 func (dc *dta_controller) InsertProfile(prf *model.Profile) (int64, error) {

@@ -284,6 +284,68 @@ func (mmp *msql_main_tx) GetOrg(orgId int64) (*Organization, error) {
 }
 
 // ========================= msql_part_persister =============================
+
+func (mpp *msql_part_tx) InsertCamera(cam *Camera) error {
+	_, err := mpp.executor().Exec("INSERT INTO camera(id, org_id, secret_key) VALUES (?,?,?)",
+		cam.Id, cam.OrgId, cam.SecretKey)
+	if err != nil {
+		mpp.logger.Warn("InsertCamera(): Could not insert new camera ", cam, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
+func (mpp *msql_part_tx) GetCameraById(camId string) (*Camera, error) {
+	rows, err := mpp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
+	if err != nil {
+		mpp.logger.Warn("GetCameraById(): Getting camera by id=", camId, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		c := new(Camera)
+		rows.Scan(&c.OrgId, &c.SecretKey)
+		c.Id = camId
+		return c, nil
+	}
+	return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find camera with id="+camId)
+}
+
+func (mpp *msql_part_tx) UpdateCamera(cam *Camera) error {
+	_, err := mpp.executor().Exec("UPDATE camera SET secret_key=? WHERE id=?",
+		cam.SecretKey, cam.Id)
+	if err != nil {
+		mpp.logger.Warn("UpdateCamera(): Could not update camera ", cam, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
+func (mpp *msql_part_tx) DeleteCamera(camId string) error {
+	_, err := mpp.executor().Exec("DELETE camera WHERE id=?", camId)
+	if err != nil {
+		mpp.logger.Warn("DeleteCamera(): Could not delete camera with id=", camId, ", got the err=", err)
+		return err
+	}
+	return nil
+}
+
+func (mpp *msql_part_tx) FindCameras(q *CameraQuery) ([]*Camera, error) {
+	rows, err := mpp.executor().Query("SELECT id, org_id, secret_key FROM camera WHERE org_id=?", q.OrgId)
+	if err != nil {
+		mpp.logger.Warn("FindCameras(): Getting cameras by query=", q, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+	res := []*Camera{}
+	for rows.Next() {
+		c := new(Camera)
+		rows.Scan(&c.Id, &c.OrgId, &c.SecretKey)
+		res = append(res, c)
+	}
+	return res, nil
+}
+
 func (mpp *msql_part_tx) InsertFace(f *Face) (int64, error) {
 	res, err := mpp.executor().Exec("INSERT INTO face(scene_id, person_id, captured_at, image_id, img_top, img_left, img_bottom, img_right, face_image_id, v128d) VALUES (?,?,?,?,?,?,?,?,?,?)",
 		f.SceneId, f.PersonId, f.CapturedAt, f.ImageId, f.Rect.LeftTop.Y, f.Rect.LeftTop.X, f.Rect.RightBottom.Y, f.Rect.RightBottom.X, f.FaceImageId, f.V128D.ToByteSlice())

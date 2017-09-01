@@ -34,7 +34,7 @@ type (
 	Camera struct {
 		Id        string // friendly camera name
 		OrgId     int64
-		SecretKey string
+		SecretKey string // this is not the key actually, but its hash
 	}
 
 	// A person DO
@@ -147,6 +147,13 @@ type (
 	PartTx interface {
 		Tx
 
+		// ==== Cams ====
+		InsertCamera(cam *Camera) error
+		GetCameraById(camId string) (*Camera, error)
+		UpdateCamera(cam *Camera) error
+		DeleteCamera(camId string) error
+		FindCameras(q *CameraQuery) ([]*Camera, error)
+
 		// ==== Faces ====
 		// returns Face by its Id, or error
 		GetFaceById(pId int64) (*Face, error)
@@ -157,8 +164,8 @@ type (
 
 		// ==== Persons ====
 		// returns Person by its Id, or error
-		GetPersonById(pId string) (*Person, error)
 		CheckPersonInOrg(pId string, orgId int64) (bool, error)
+		GetPersonById(pId string) (*Person, error)
 		FindPersons(pQuery *PersonsQuery) ([]*Person, error)
 		// insert new person, returns the new record id, or error, if it happens
 		InsertPerson(person *Person) error
@@ -185,6 +192,10 @@ type (
 		// Looking for profiles for requiested match groups
 		// profileId -> mg
 		GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error)
+	}
+
+	CameraQuery struct {
+		OrgId int64
 	}
 
 	FacesQuery struct {
