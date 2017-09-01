@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS `camera` (
 	`secret_key`            VARCHAR(50),
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `org_id_idx` USING BTREE (org_id),
+	INDEX `org_id_idx` USING BTREE (org_id)
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 #Field Info. Please pay attention that display_name is case INSENSITIVE 'aaa' == 'AaA'
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS `profile` (
 	`picture_id`             VARCHAR(255)     NOT NULL, 
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	INDEX `org_id_idx` USING BTREE (org_id),
+	INDEX `org_id_idx` USING BTREE (org_id)
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile_meta` (
