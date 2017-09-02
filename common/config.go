@@ -50,6 +50,10 @@ type ConsoleConfig struct {
 	// how long to keep temporary images
 	ImgsTmpTTLSec int
 
+	// AuthN, AuthZ
+	AuthMaxSessions  int
+	AuthSessionTOSec int
+
 	logger log4g.Logger
 }
 
@@ -76,6 +80,8 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.LbsMaxSize = "20G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	cc.ImgsTmpTTLSec = 60
+	cc.AuthMaxSessions = 3    // same user can open up to 3 sessions
+	cc.AuthSessionTOSec = 300 // kick it out in 5 minutes
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }
@@ -113,6 +119,12 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	}
 	if cc1.HttpDebugMode {
 		cc.HttpDebugMode = true
+	}
+	if cc1.AuthMaxSessions > 0 {
+		cc.AuthMaxSessions = cc1.AuthMaxSessions
+	}
+	if cc1.AuthSessionTOSec > 0 {
+		cc.AuthSessionTOSec = cc1.AuthSessionTOSec
 	}
 }
 

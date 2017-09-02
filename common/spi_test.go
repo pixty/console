@@ -73,7 +73,7 @@ func TestV128Conv(t *testing.T) {
 func TestNewSecretKey(t *testing.T) {
 	log := log4g.GetLogger("sk")
 	for i := 0; i < 10; i++ {
-		nsc := NewSecretKey()
+		nsc := NewSecretKey(8)
 		log.Info(nsc, " and it's hash=", Hash(nsc))
 	}
 }

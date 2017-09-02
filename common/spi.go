@@ -1,13 +1,14 @@
 package common
 
 import (
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
+	mrand "math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -87,13 +88,14 @@ type (
 )
 
 const (
-	ID_NULL                   = ""
-	TIMESTAMP_NA    Timestamp = 0
-	ERR_NOT_FOUND             = 1
-	ERR_INVALID_VAL           = 2
+	ID_NULL                       = ""
+	TIMESTAMP_NA        Timestamp = 0
+	ERR_NOT_FOUND                 = 1
+	ERR_INVALID_VAL               = 2
+	ERR_LIMIT_VIOLATION           = 3
 
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
-	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_&^-()@#$%"
+	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_^-()@#$%"
 )
 
 // ================================= Misc ====================================
@@ -110,20 +112,37 @@ func DoesFileExist(fileName string) bool {
 	return !os.IsNotExist(err)
 }
 
-func NewSecretKey() string {
-	uid := uuid.NewV4()
-	val := []byte{}
+func NewSecretKey(lng int) string {
+	val := make([]byte, lng)
+	Rand(val)
+
 	ab := len(SECRET_KEY_ALPHABET)
-	for i := 0; i < len(uid); i++ {
-		idx := int(uid[i]) % ab
-		val = append(val, SECRET_KEY_ALPHABET[idx])
+	for i := 0; i < lng; i++ {
+		idx := int(val[i]) % ab
+		val[i] = SECRET_KEY_ALPHABET[idx]
 	}
 	return string(val)
 }
 
+func NewSession() string {
+	val := make([]byte, 32)
+	Rand(val)
+	return HashBytes(val)
+}
+
 func Hash(password string) string {
-	h := sha256.Sum256([]byte(password))
+	return HashBytes([]byte(password))
+}
+
+func HashBytes(bts []byte) string {
+	h := sha256.Sum256(bts)
 	return base64.StdEncoding.EncodeToString(h[:])
+}
+
+func Rand(bts []byte) {
+	if _, err := crand.Read(bts); err != nil {
+		panic(err)
+	}
 }
 
 // ================================ Error ====================================
@@ -271,8 +290,8 @@ func (v V128D) Equals(v2 V128D) bool {
 
 // For testing...
 func (v V128D) FillRandom() V128D {
-	s := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(s)
+	s := mrand.NewSource(time.Now().UnixNano())
+	r := mrand.New(s)
 	for i := 0; i < 128; i++ {
 		v[i] = r.Float32()
 	}

@@ -28,6 +28,16 @@ type (
 	User struct {
 		Id    int64
 		Login string
+		Email string
+		Salt  string
+		Hash  string
+	}
+
+	// User Role DO
+	UserRole struct {
+		User  string
+		OrgId int64
+		Role  int
 	}
 
 	// Camera DO
