@@ -2,6 +2,7 @@ package rapi
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -182,10 +183,6 @@ func (a *api) h_GET_ping(c *gin.Context) {
 // to the last frame for the requested camera
 // GET /cameras/:camId/timeline?limit=20&maxTime=12341234
 func (a *api) h_GET_cameras_timeline(c *gin.Context) {
-	if !a.authenticated(c) {
-		return
-	}
-
 	camId := c.Param("camId")
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
@@ -226,7 +223,7 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 func (a *api) h_POST_orgs(c *gin.Context) {
 	a.logger.Debug("POST /orgs")
 	var org Organization
-	if a.errorResponse(c, c.Bind(&org)) {
+	if a.errorResponse(c, bindAppJson(c, &org)) {
 		return
 	}
 
@@ -270,7 +267,7 @@ func (a *api) h_POST_orgs_orgId_fields(c *gin.Context) {
 	}
 
 	var mis OrgMetaInfoArr
-	if a.errorResponse(c, c.Bind(&mis)) {
+	if a.errorResponse(c, bindAppJson(c, &mis)) {
 		return
 	}
 
@@ -314,7 +311,7 @@ func (a *api) h_PUT_orgs_orgId_fields_fldId(c *gin.Context) {
 	}
 
 	mi := &OrgMetaInfo{}
-	if a.errorResponse(c, c.Bind(mi)) {
+	if a.errorResponse(c, bindAppJson(c, mi)) {
 		return
 	}
 	fi := a.metaInfo2FieldInfo(mi)
@@ -347,10 +344,55 @@ func (a *api) h_DELETE_orgs_orgId_fields_fldId(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Retruns all user roles for the org
+// GET /orgs/:orgId/userRoles
+func (a *api) h_GET_orgs_orgId_userRoles(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("POST /orgs/", orgId, "/userRoles")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	if !a.authorizeOrgAdmin(c, orgId) {
+		return
+	}
+
+	urs, err := a.AuthService.GetUserRoles(orgId, "")
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.Status(http.StatusOK, a.muserRoles2userRoles(urs))
+}
+
+// Create new User role
+// POST /orgs/:orgId/userRoles
+func (a *api) h_POST_orgs_orgId_userRoles(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("POST /orgs/", orgId, "/userRoles")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	if !a.authorizeOrgAdmin(c, orgId) {
+		return
+	}
+
+}
+
+// Delete a user role
+// DELETE /orgs/:orgId/userRoles/:userId
+func (a *api) h_DELETE_orgs_orgId_userRoles_userId(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
+	a.logger.Debug("POST /orgs/", orgId, "/userRoles")
+	if a.errorResponse(c, err) {
+		return
+	}
+}
+
 // POST /users - create new user
 func (a *api) h_POST_users(c *gin.Context) {
 	usr := &User{}
-	if a.errorResponse(c, c.Bind(usr)) {
+	if a.errorResponse(c, bindAppJson(c, usr)) {
 		return
 	}
 	a.logger.Info("Creating new user ", usr)
@@ -371,6 +413,16 @@ func (a *api) h_POST_users(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
+// Get a user info
+// GET /users/:userId
+func (a *api) h_GET_users_userId(c *gin.Context) {
+}
+
+// Get the user roles
+// GET /users/:userId/userRoles
+func (a *api) h_GET_users_userId_userRoles(c *gin.Context) {
+}
+
 // POST /users/:userId/password - set new password
 func (a *api) h_POST_users_userId_password(c *gin.Context) {
 	login := c.Param("userId")
@@ -379,7 +431,7 @@ func (a *api) h_POST_users_userId_password(c *gin.Context) {
 	}
 
 	usr := &User{}
-	if a.errorResponse(c, c.Bind(usr)) {
+	if a.errorResponse(c, bindAppJson(c, usr)) {
 		return
 	}
 
@@ -416,7 +468,7 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 	}
 
 	var p Profile
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
 		return
 	}
 
@@ -477,7 +529,7 @@ func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
 	}
 
 	var p Profile
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
 		return
 	}
 
@@ -548,7 +600,7 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	}
 	a.logger.Debug("PUT /persons/", persId, " [orgId=", orgId, "]")
 	var p Person
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&p))) {
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
 		return
 	}
 
@@ -585,7 +637,7 @@ func (a *api) h_POST_cameras(c *gin.Context) {
 	}
 
 	var cam Camera
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", c.Bind(&cam))) {
+	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &cam))) {
 		return
 	}
 	a.logger.Info("POST /cameras ", cam, " for orgId=", orgId)
@@ -763,7 +815,23 @@ func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 
 func (a *api) authenticated(c *gin.Context) bool {
 	a.basicAuthF(c)
-	return !c.IsAborted()
+	if c.IsAborted() {
+		a.logger.Warn("Auhtentication required for ", reqOp(c))
+		return false
+	}
+	return true
+}
+
+func bindAppJson(c *gin.Context, inf interface{}) error {
+	ct := c.ContentType()
+	if ct != "application/json" {
+		return common.NewError(common.ERR_INVALID_VAL, "Expected content type for the request is 'application/json', but really is "+strconv.Quote(ct))
+	}
+	return c.Bind(inf)
+}
+
+func reqOp(c *gin.Context) string {
+	return fmt.Sprint(c.Request.Method, " ", c.Request.URL)
 }
 
 // Authenticate the request and authorize the provided login. Will return true
@@ -773,7 +841,21 @@ func (a *api) authorizeUser(c *gin.Context, login string) bool {
 		return false
 	}
 	if !a.authMW.isUserOrSuperadmin(c, login) {
-		a.logger.Warn("Unathorized operation for login=", login, " performed by ", a.authMW.authenticatedUser(c))
+		a.logger.Warn("Unathorized ", reqOp(c), " for login=", login, " performed by ", a.authMW.authenticatedUser(c))
+		c.Status(http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// Authenticate the request and authorize the call if the user is superadmin
+// or org admin
+func (a *api) authorizeOrgAdmin(c *gin.Context, orgId int64) bool {
+	if !a.authenticated(c) {
+		return false
+	}
+	if !a.authMW.isOrgAdmin(c, orgId) {
+		a.logger.Warn("Unathorized ", reqOp(c), " for orgId==", orgId, " performed by ", a.authMW.authenticatedUser(c))
 		c.Status(http.StatusForbidden)
 		return false
 	}
@@ -981,6 +1063,55 @@ func (a *api) user2muser(user *User) *model.User {
 	u.Login = user.Login
 	u.Email = user.Email
 	return u
+}
+
+func (a *api) muserRoles2userRoles(mus []*model.UserRole) []*UserRole {
+	if mus == nil || len(mus) {
+		return []*UserRole{}
+	}
+	res := make([]*UserRole, len(mus))
+	for i, mu := range mus {
+		res[i] = a.muserRole2userRole(mu)
+	}
+	return res
+}
+
+func (a *api) muserRole2userRole(mu *model.UserRole) *UserRole {
+	ur := new(UserRole)
+	ur.Login = mu.Login
+	ur.OrgId = mu.OrgId
+	ur.Role = level2urole(mu.Role)
+	return ur
+}
+
+func level2urole(lvl auth.AZLevel) string {
+	switch lvl {
+	case auth.AUTHZ_LEVEL_SA:
+		return "superadmin"
+	case auth.AUTHZ_LEVEL_OA:
+		return "orgadmin"
+	case auth.AUTHZ_LEVEL_OU:
+		return "orguser"
+	case auth.AUTHZ_LEVEL_NA:
+		return "notassigned"
+	default:
+		return "unknown"
+	}
+}
+
+func urole2level(lvl string) auth.AZLevel {
+	switch lvl {
+	case "superadmin":
+		return auth.AUTHZ_LEVEL_SA
+	case "orgadmin":
+		return auth.AUTHZ_LEVEL_OA
+	case "orguser":
+		return auth.AUTHZ_LEVEL_OU
+	case "notassigned":
+		return auth.AUTHZ_LEVEL_NA
+	default:
+		return auth.AUTHZ_LEVEL_UNKNWN
+	}
 }
 
 func (a *api) fieldInfos2MetaInfos(fieldInfos []*model.FieldInfo) []*OrgMetaInfo {

@@ -151,6 +151,16 @@ func (am *auth_middleware) isUserOrSuperadmin(c *gin.Context, login string) bool
 	return user != "" && (login == user || am.isSuperadmin(user))
 }
 
+// returns true if the context user is org admin, or context user is superadmin
+func (am *auth_middleware) isOrgAdmin(c *gin.Context, orgId int64) bool {
+	user := am.authenticatedUser(c)
+	if user == "" {
+		return false
+	}
+	al, err := am.authServ.AuthZ(user, orgId)
+	return err == nil && al >= auth.AUTHZ_LEVEL_OA
+}
+
 func (am *auth_middleware) isSuperadmin(login string) bool {
 	al, err := am.authServ.AuthZ(login, 0)
 	return err == nil && al == auth.AUTHZ_LEVEL_SA

@@ -32,6 +32,8 @@ type (
 		UpdateUser(user *model.User) error
 		SetUserPasswd(user, passwd string) error
 		UpdateUserRoles(orgId int64, login string, urs []*model.UserRole) error
+
+		// Finds users whether by orgId, login or both
 		GetUserRoles(orgId int64, login string) ([]*model.UserRole, error)
 	}
 
@@ -249,12 +251,6 @@ func (as *auth_service) GetUserRoles(orgId int64, login string) ([]*model.UserRo
 	if err != nil {
 		return nil, err
 	}
-
-	err = mmp.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer mmp.Commit()
 
 	return mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId, Login: login})
 }

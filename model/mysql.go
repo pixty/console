@@ -359,10 +359,20 @@ func (mmp *msql_main_tx) DeleteUserRoles(q *UserRoleQuery) error {
 }
 
 func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
-	query := "SELECT org_id, role FROM user_role WHERE login=? "
-	params := []interface{}{q.Login}
+	query := "SELECT org_id, role FROM user_role "
+	params := []interface{}{}
+
+	if q.Login != "" {
+		query += " WHERE login=?"
+		params = append(params, q.Login)
+	}
+
 	if q.OrgId > 0 {
-		query += " AND org_id=?"
+		if len(params) > 0 {
+			query += " AND org_id=?"
+		} else {
+			query += " WHERE org_id=?"
+		}
 		params = append(params, q.OrgId)
 	}
 

@@ -30,6 +30,12 @@ type (
 		Password *string `json:"password,omitempty"`
 	}
 
+	UserRole struct {
+		Login string `json:"login"`
+		OrgId int64  `json:"orgId"`
+		Role  string `json:"role"`
+	}
+
 	Camera struct {
 		Id           string  `json:"id"`
 		OrgId        int64   `json:"orgId"`
