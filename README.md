@@ -15,11 +15,11 @@ $ git clone git@github.com:pixty/console.git
 -  Compile the console:
 ```
 $ go get
-$ go build -v ./...
+$ go install -v ./...
 ```
 -  Now you can run console locally:
 ```
-$ console -help
+$ pixty_console -help
 ...
 ```
 
