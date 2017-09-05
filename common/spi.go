@@ -88,11 +88,12 @@ type (
 )
 
 const (
-	ID_NULL                       = ""
-	TIMESTAMP_NA        Timestamp = 0
-	ERR_NOT_FOUND                 = 1
-	ERR_INVALID_VAL               = 2
-	ERR_LIMIT_VIOLATION           = 3
+	ID_NULL                         = ""
+	TIMESTAMP_NA          Timestamp = 0
+	ERR_NOT_FOUND                   = 1
+	ERR_INVALID_VAL                 = 2
+	ERR_LIMIT_VIOLATION             = 3
+	ERR_WRONG_CREDENTIALS           = 4
 
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
 	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_^-()@#$%"

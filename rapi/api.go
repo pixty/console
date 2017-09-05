@@ -12,14 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jrivets/gorivets"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/service"
+	"github.com/pixty/console/service/auth"
 	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
-	"gopkg.in/gin-gonic/gin.v1"
 	"gopkg.in/tylerb/graceful.v1"
 )
 
@@ -30,6 +31,10 @@ type api struct {
 	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
 	MainCtx      context.Context        `inject:"mainCtx"`
 	Dc           service.DataController `inject:""`
+	SessService  auth.SessionService    `inject:""`
+	AuthService  auth.AuthService       `inject:""`
+	basicAuthF   gin.HandlerFunc
+	authMW       *auth_middleware
 	logger       log4g.Logger
 }
 
@@ -40,23 +45,31 @@ const (
 )
 
 func NewAPI() *api {
-	return new(api)
+	a := new(api)
+	a.logger = log4g.GetLogger("pixty.rest")
+	return a
 }
 
 // =========================== PostConstructor ===============================
 func (a *api) DiPostConstruct() {
-	a.logger = log4g.GetLogger("pixty.rest")
 	a.logger.Info("HTTP Debug mode=", a.Config.HttpDebugMode)
 	if !a.Config.HttpDebugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
+
+	a.authMW = newAuthMW(a.AuthService, a.SessService)
 
 	a.ge = gin.New()
 	if a.Config.HttpDebugMode {
 		a.logger.Info("Gin logger and gin.debug is enabled. You can set up DEBUG mode for the pixty.rest group to obtain requests dumps and more logs for the API group.")
 		a.ge.Use(gin.Logger())
 	}
+	// Request logger middleware
 	a.ge.Use(a.PrintRequest)
+	// Basic authentication scheme
+	a.basicAuthF = a.authMW.basicAuthMiddleware("")
+	// Don't use it as midleware, but in each request explisitly!
+	// a.ge.Use(basicAuthF)
 
 	a.logger.Info("Constructing ReST API")
 
@@ -102,6 +115,14 @@ func (a *api) DiPostConstruct() {
 
 	// Delete an organization field - all data will be lost
 	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
+
+	// Creates new user. The request accepts password optional field which allows
+	// to set a new password due to creation. If it is not providede the password is empty.
+	a.ge.POST("/users", a.h_POST_users)
+
+	// Changes the user password. Only owner or superadmin can make the change.
+	// Authenticated session is not affected
+	a.ge.POST("/users/:userId/password", a.h_POST_users_userId_password)
 
 	// Creates a new profile. The call allows to provide some list of field values
 	//
@@ -161,6 +182,10 @@ func (a *api) h_GET_ping(c *gin.Context) {
 // to the last frame for the requested camera
 // GET /cameras/:camId/timeline?limit=20&maxTime=12341234
 func (a *api) h_GET_cameras_timeline(c *gin.Context) {
+	if !a.authenticated(c) {
+		return
+	}
+
 	camId := c.Param("camId")
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
@@ -318,6 +343,53 @@ func (a *api) h_DELETE_orgs_orgId_fields_fldId(c *gin.Context) {
 	if a.errorResponse(c, a.Dc.DeleteFieldInfo(orgId, fldId)) {
 		return
 	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// POST /users - create new user
+func (a *api) h_POST_users(c *gin.Context) {
+	usr := &User{}
+	if a.errorResponse(c, c.Bind(usr)) {
+		return
+	}
+	a.logger.Info("Creating new user ", usr)
+	mu := a.user2muser(usr)
+	if a.errorResponse(c, a.AuthService.CreateUser(mu)) {
+		return
+	}
+
+	if usr.Password != nil {
+		if err := a.AuthService.SetUserPasswd(usr.Login, ptr2string(usr.Password, "")); err != nil {
+			a.logger.Warn("Could not set user password for new user ", usr.Login, ", err=", err, ". Will leave it intact")
+		}
+	}
+
+	w := c.Writer
+	uri := composeURI(c.Request, usr.Login)
+	w.Header().Set("Location", uri)
+	c.Status(http.StatusCreated)
+}
+
+// POST /users/:userId/password - set new password
+func (a *api) h_POST_users_userId_password(c *gin.Context) {
+	login := c.Param("userId")
+	if !a.authorizeUser(c, login) {
+		return
+	}
+
+	usr := &User{}
+	if a.errorResponse(c, c.Bind(usr)) {
+		return
+	}
+
+	err := a.AuthService.SetUserPasswd(login, ptr2string(usr.Password, ""))
+	if a.errorResponse(c, err) {
+		a.logger.Warn("Could not set user password for user ", login, ", err=", err, ". Will leave it intact")
+		return
+	}
+
+	a.logger.Info("Password for user ", login, ", was changed successfully!")
 
 	c.Status(http.StatusNoContent)
 }
@@ -654,6 +726,7 @@ func (a *api) PrintRequest(c *gin.Context) {
 		r, _ := httputil.DumpRequest(c.Request, true)
 		a.logger.Debug("\n>>> REQUEST\n", string(r), "\n<<< REQUEST")
 	}
+	c.Next()
 }
 
 func parseInt64QueryParam(prmName string, vals url.Values) (int64, error) {
@@ -686,6 +759,25 @@ func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 		return -1, errors.New("Expecting an integer value, but got \"" + prm + "\"")
 	}
 	return val, nil
+}
+
+func (a *api) authenticated(c *gin.Context) bool {
+	a.basicAuthF(c)
+	return !c.IsAborted()
+}
+
+// Authenticate the request and authorize the provided login. Will return true
+// if the user is authenticated and it is same as login or superadmin
+func (a *api) authorizeUser(c *gin.Context, login string) bool {
+	if !a.authenticated(c) {
+		return false
+	}
+	if !a.authMW.isUserOrSuperadmin(c, login) {
+		a.logger.Warn("Unathorized operation for login=", login, " performed by ", a.authMW.authenticatedUser(c))
+		c.Status(http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 //============================== Transformers ================================
@@ -882,6 +974,13 @@ func (a *api) morg2org(mo *model.Organization, fis []*model.FieldInfo) *Organiza
 	org.Name = mo.Name
 	org.Meta = a.fieldInfos2MetaInfos(fis)
 	return org
+}
+
+func (a *api) user2muser(user *User) *model.User {
+	u := new(model.User)
+	u.Login = user.Login
+	u.Email = user.Email
+	return u
 }
 
 func (a *api) fieldInfos2MetaInfos(fieldInfos []*model.FieldInfo) []*OrgMetaInfo {

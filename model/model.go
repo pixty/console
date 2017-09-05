@@ -26,7 +26,6 @@ type (
 
 	// User DO
 	User struct {
-		Id    int64
 		Login string
 		Email string
 		Salt  string
@@ -35,7 +34,7 @@ type (
 
 	// User Role DO
 	UserRole struct {
-		User  string
+		Login string
 		OrgId int64
 		Role  int
 	}
@@ -151,6 +150,14 @@ type (
 		// orgs
 		InsertOrg(org *Organization) (int64, error)
 		GetOrg(orgId int64) (*Organization, error)
+
+		// users
+		InsertUser(user *User) error
+		GetUserByLogin(login string) (*User, error)
+		UpdateUser(user *User) error
+		InsertUserRoles(ur []*UserRole) error
+		DeleteUserRoles(q *UserRoleQuery) error
+		FindUserRoles(q *UserRoleQuery) ([]*UserRole, error)
 	}
 
 	// Partitioned persister
@@ -231,6 +238,11 @@ type (
 		ProfileIds []int64
 		// Indicates, that meta is not needed
 		NoMeta bool
+	}
+
+	UserRoleQuery struct {
+		OrgId int64
+		Login string
 	}
 )
 

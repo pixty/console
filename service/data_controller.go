@@ -233,7 +233,7 @@ func (dc *dta_controller) NewCameraKey(camId string, orgId int64) (*model.Camera
 		return nil, "", common.NewError(common.ERR_NOT_FOUND, "No camera with id="+camId)
 	}
 
-	sk := common.NewSecretKey()
+	sk := common.NewSecretKey(8)
 	hash := common.Hash(sk)
 	cam.SecretKey = hash
 	err = mpp.UpdateCamera(cam)

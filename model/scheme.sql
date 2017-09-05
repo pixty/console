@@ -22,12 +22,25 @@ CREATE TABLE IF NOT EXISTS `organization` (
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `user` (
-	`id`                     BIGINT(20)      NOT NULL AUTO_INCREMENT,
-	`login`                  VARCHAR(255)    NOT NULL,
+	`id`                     BIGINT(20)     NOT NULL AUTO_INCREMENT,
+	`login`                  VARCHAR(50)    NOT NULL,
+	`email`                  VARCHAR(50)    NOT NULL,
+	`salt`                   VARCHAR(128)   NOT NULL,
+	`hash`                   VARCHAR(255)   NOT NULL,
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
-	UNIQUE `login_idx` USING BTREE (login)
-) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+	UNIQUE `login_idx` USING BTREE (login),
+	UNIQUE `email_idx` USING BTREE (email)
+) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
+CREATE TABLE IF NOT EXISTS `user_role` (
+	`login`                  VARCHAR(50)    NOT NULL,
+	`org_id`                 BIGINT(20)     NOT NULL,
+	`role`                   VARCHAR(128)   NOT NULL,
+	INDEX `login_idx` USING BTREE (login),
+	UNIQUE `org_login_idx` USING BTREE (org_id, login)
+) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
 
 CREATE TABLE IF NOT EXISTS `camera` (
 	`id`                    VARCHAR(255) NOT NULL,

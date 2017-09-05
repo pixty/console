@@ -22,6 +22,14 @@ type (
 		FieldType string `json:"fieldType"`
 	}
 
+	User struct {
+		Login string `json:"login"`
+		Email string `json:"email"`
+
+		// The password can be used in set password queries
+		Password *string `json:"password,omitempty"`
+	}
+
 	Camera struct {
 		Id           string  `json:"id"`
 		OrgId        int64   `json:"orgId"`

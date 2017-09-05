@@ -37,6 +37,14 @@ func NewInMemSessionService() SessionService {
 	return sis
 }
 
+func (sis *sess_inmem_service) String() string {
+	sess := 0
+	if sis.sessCache != nil {
+		sess = sis.sessCache.Len()
+	}
+	return fmt.Sprint("InMemSessionService:{sessions=", sess, "}")
+}
+
 // Construct the object when all DI is done
 func (sis *sess_inmem_service) DiPostConstruct() {
 	sessTTL := time.Second * time.Duration(sis.Config.AuthSessionTOSec)
@@ -96,6 +104,9 @@ func (sis *sess_inmem_service) GetBySession(session string) SessionDesc {
 }
 
 func (sis *sess_inmem_service) DeleteSesion(session string) SessionDesc {
+	if session == "" {
+		return nil
+	}
 	sis.lock.Lock()
 	defer sis.lock.Unlock()
 

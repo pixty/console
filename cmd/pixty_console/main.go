@@ -7,6 +7,7 @@ import (
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/rapi"
 	"github.com/pixty/console/service"
+	"github.com/pixty/console/service/auth"
 	"github.com/pixty/console/service/fpcp_serv"
 	"github.com/pixty/console/service/scene"
 	"golang.org/x/net/context"
@@ -41,8 +42,10 @@ func main() {
 	fpcp := fpcp_serv.NewFPCPServer()
 	scnProc := scene.NewSceneProcessor()
 	dtaCtrlr := service.NewDataController()
+	authService := auth.NewAuthService()
+	sessService := auth.NewInMemSessionService()
 
-	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr)
+	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService)
 	injector.RegisterOne(imgService, "imgService")
 	injector.RegisterOne(lbs, "blobStorage")
 	injector.RegisterOne(msqlPersist, "persister")
