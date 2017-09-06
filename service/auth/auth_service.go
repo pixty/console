@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
@@ -26,15 +27,25 @@ type (
 		// - login
 		// - email
 		CreateUser(user *model.User) error
+		GetUser(loging string) (*model.User, error)
 
 		// Updates the following fields for the user:
 		// - e-mail address
 		UpdateUser(user *model.User) error
 		SetUserPasswd(user, passwd string) error
-		UpdateUserRoles(orgId int64, login string, urs []*model.UserRole) error
+
+		// Insert user role by a user with login name. Will perform some checks
+		// and returns an error if operation is failed. Superadmin can assign the role
+		// to somebody else using orgId=0. All other things only ordadmins can do
+		InserUserRole(login string, orgId int64, ur *model.UserRole) error
+
+		// Revokes the user role for the user
+		RevokeUserRole(login string, orgId int64, revokedLogin string) error
+
+		UpdateUserRoles(login string, orgId int64, urs []*model.UserRole) error
 
 		// Finds users whether by orgId, login or both
-		GetUserRoles(orgId int64, login string) ([]*model.UserRole, error)
+		GetUserRoles(login string, orgId int64) ([]*model.UserRole, error)
 	}
 
 	org2levels map[int64]AZLevel
@@ -69,12 +80,49 @@ func NewAuthService() AuthService {
 	return as
 }
 
+func (azl AZLevel) String() string {
+	switch azl {
+	case AUTHZ_LEVEL_SA:
+		return "superadmin"
+	case AUTHZ_LEVEL_OA:
+		return "orgadmin"
+	case AUTHZ_LEVEL_OU:
+		return "orguser"
+	case AUTHZ_LEVEL_NA:
+		return "notassigned"
+	default:
+		return "unknown"
+	}
+}
+
+func AZLevelParse(lvl string) AZLevel {
+	switch lvl {
+	case "superadmin":
+		return AUTHZ_LEVEL_SA
+	case "orgadmin":
+		return AUTHZ_LEVEL_OA
+	case "orguser":
+		return AUTHZ_LEVEL_OU
+	case "notassigned":
+		return AUTHZ_LEVEL_NA
+	default:
+		return AUTHZ_LEVEL_UNKNWN
+	}
+}
+
 func (as *auth_service) String() string {
 	cached := 0
 	if as.urCache != nil {
 		cached = as.urCache.Len()
 	}
 	return fmt.Sprint("AuthService{cached=", cached, "}")
+}
+
+func checkLogin(login string) error {
+	if !loginRegexp.MatchString(login) {
+		return common.NewError(common.ERR_INVALID_VAL, "Invalid login="+login+", expected string up to 40 chars long.")
+	}
+	return nil
 }
 
 func (as *auth_service) AuthN(login, passwd string) (bool, error) {
@@ -167,8 +215,9 @@ func getHash(user *model.User, passwd string) string {
 }
 
 func (as *auth_service) CreateUser(user *model.User) error {
-	if !loginRegexp.MatchString(user.Login) {
-		return common.NewError(common.ERR_INVALID_VAL, "Invalid login="+user.Login+", expected string up to 40 chars long.")
+	err := checkLogin(user.Login)
+	if err != nil {
+		return err
 	}
 
 	mmp, err := as.Persister.GetMainTx()
@@ -182,6 +231,15 @@ func (as *auth_service) CreateUser(user *model.User) error {
 	as.logger.Info("Inserting new user ", user)
 	err = mmp.InsertUser(user)
 	return err
+}
+
+func (as *auth_service) GetUser(login string) (*model.User, error) {
+	mmp, err := as.Persister.GetMainTx()
+	if err != nil {
+		return nil, err
+	}
+
+	return mmp.GetUserByLogin(login)
 }
 
 func (as *auth_service) UpdateUser(usr *model.User) error {
@@ -226,7 +284,60 @@ func (as *auth_service) SetUserPasswd(login, passwd string) error {
 	return mmp.UpdateUser(user)
 }
 
-func (as *auth_service) UpdateUserRoles(orgId int64, login string, urs []*model.UserRole) error {
+func (as *auth_service) InserUserRole(login string, orgId int64, ur *model.UserRole) error {
+	mmp, err := as.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+
+	if ur.OrgId != orgId {
+		return common.NewError(common.ERR_INVALID_VAL, "Cannot set User Role with orgId="+strconv.FormatInt(ur.OrgId, 10)+
+			" for orgId="+strconv.FormatInt(orgId, 10))
+	}
+
+	if orgId > 0 && ur.Role > AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_INVALID_VAL, "superadmin User Role could not be assigned for an organization")
+	}
+
+	urLevel := AZLevel(ur.Role)
+	if ur.Role <= AUTHZ_LEVEL_NA {
+		return common.NewError(common.ERR_INVALID_VAL, "Wrong role is provided "+urLevel.String()+
+			", but accepted ones are 'orgadmin' and 'orguser'")
+	}
+
+	azl, err := as.AuthZ(login, orgId)
+	if err != nil {
+		return err
+	}
+	if azl < urLevel || azl < AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+login+" doesn't have rights for set up user role "+urLevel.String()+" for "+ur.Login)
+	}
+
+	return mmp.InsertUserRoles([]*model.UserRole{ur})
+}
+
+func (as *auth_service) RevokeUserRole(login string, orgId int64, revokedLogin string) error {
+	err := checkLogin(revokedLogin)
+	if err != nil {
+		return err
+	}
+
+	azl, err := as.AuthZ(login, orgId)
+	if err != nil {
+		return err
+	}
+	if azl < AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+login+" doesn't have rights for revoking role of "+revokedLogin)
+	}
+
+	mmp, err := as.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+	return mmp.DeleteUserRoles(&model.UserRoleQuery{OrgId: orgId, Login: revokedLogin})
+}
+
+func (as *auth_service) UpdateUserRoles(login string, orgId int64, urs []*model.UserRole) error {
 	mmp, err := as.Persister.GetMainTx()
 	if err != nil {
 		return err
@@ -246,7 +357,7 @@ func (as *auth_service) UpdateUserRoles(orgId int64, login string, urs []*model.
 	return mmp.InsertUserRoles(urs)
 }
 
-func (as *auth_service) GetUserRoles(orgId int64, login string) ([]*model.UserRole, error) {
+func (as *auth_service) GetUserRoles(login string, orgId int64) ([]*model.UserRole, error) {
 	mmp, err := as.Persister.GetMainTx()
 	if err != nil {
 		return nil, err

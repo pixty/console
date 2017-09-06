@@ -38,9 +38,9 @@ CREATE TABLE IF NOT EXISTS `user_role` (
 	`org_id`                 BIGINT(20)     NOT NULL,
 	`role`                   VARCHAR(128)   NOT NULL,
 	INDEX `login_idx` USING BTREE (login),
+	FOREIGN KEY (`login`) REFERENCES user(`login`) ON DELETE CASCADE,
 	UNIQUE `org_login_idx` USING BTREE (org_id, login)
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
-
 
 CREATE TABLE IF NOT EXISTS `camera` (
 	`id`                    VARCHAR(255) NOT NULL,

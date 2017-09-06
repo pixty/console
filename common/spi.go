@@ -94,6 +94,7 @@ const (
 	ERR_INVALID_VAL                 = 2
 	ERR_LIMIT_VIOLATION             = 3
 	ERR_WRONG_CREDENTIALS           = 4
+	ERR_UNAUTHORIZED                = 5
 
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
 	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_^-()@#$%"
@@ -163,11 +164,7 @@ func NewError(code int, param interface{}) *Error {
 }
 
 func (e *Error) Error() string {
-	switch e.code {
-	case ERR_NOT_FOUND:
-		return fmt.Sprint(e.param, " not found.")
-	}
-	return ""
+	return e.param.(string)
 }
 
 // ============================== BlobMeta ===================================

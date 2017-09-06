@@ -20,6 +20,8 @@ type (
 		UpdateFieldInfo(fi *model.FieldInfo) error
 		DeleteFieldInfo(orgId, fldId int64) error
 
+		// Users
+
 		//Cameras
 		GetCameraById(camId string) (*model.Camera, error)
 		GetAllCameras(orgId int64) ([]*model.Camera, error)

@@ -342,24 +342,8 @@ func (mmp *msql_main_tx) InsertUserRoles(urs []*UserRole) error {
 	return err
 }
 
-func (mmp *msql_main_tx) DeleteUserRoles(q *UserRoleQuery) error {
-	query := "DELETE FROM user_role WHERE login=? "
-	params := []interface{}{q.Login}
-	if q.OrgId > 0 {
-		query += " AND org_id=?"
-		params = append(params, q.OrgId)
-	}
-
-	mmp.logger.Debug("DeleteUserRoles(): quer=", query, " params=", params)
-	_, err := mmp.executor().Exec(query, params...)
-	if err != nil {
-		mmp.logger.Warn("DeleteUserRoles(): Could not delet user roles for q=", q, ", got the err=", err)
-	}
-	return err
-}
-
-func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
-	query := "SELECT org_id, role FROM user_role "
+func (q *UserRoleQuery) getWhereCondition() (string, []interface{}) {
+	var query string
 	params := []interface{}{}
 
 	if q.Login != "" {
@@ -375,6 +359,24 @@ func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
 		}
 		params = append(params, q.OrgId)
 	}
+	return query, params
+}
+
+func (mmp *msql_main_tx) DeleteUserRoles(q *UserRoleQuery) error {
+	where, params := q.getWhereCondition()
+	query := "DELETE FROM user_role " + where
+
+	mmp.logger.Debug("DeleteUserRoles(): query=", query, " params=", params)
+	_, err := mmp.executor().Exec(query, params...)
+	if err != nil {
+		mmp.logger.Warn("DeleteUserRoles(): Could not delet user roles for q=", q, ", got the err=", err)
+	}
+	return err
+}
+
+func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
+	where, params := q.getWhereCondition()
+	query := "SELECT org_id, role FROM user_role " + where
 
 	mmp.logger.Debug("FindUserRoles(): quer=", query, " params=", params)
 	rows, err := mmp.executor().Query(query, params...)

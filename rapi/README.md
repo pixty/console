@@ -94,6 +94,15 @@ Copied from api.go:
 ```
 
 # Examples
+// Create a new user
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "super"}' http://localhost:8080/users
+
+// Set new password
+curl -v -H "Content-Type: application/json" -u super:oldpasswd -XPOST -d '{"password":"newpassword"}' http://localhost:8080/users/super/password
+
+// User asks about his own roles (or superadmin does)
+curl -v -H "Content-Type: application/json" -u super:superpass http://localhost:8080/users/super/userRoles
+
 // Get list of orgs
 curl -v -H "Content-Type: application/json" -X POST -d '{"name": "pixty"}' http://api.pixty.io/orgs
 

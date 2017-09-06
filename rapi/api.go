@@ -117,6 +117,15 @@ func (a *api) DiPostConstruct() {
 	// Delete an organization field - all data will be lost
 	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
 
+	// returns list of user roles assignments
+	a.ge.GET("/orgs/:orgId/userRoles", a.h_GET_orgs_orgId_userRoles)
+
+	// Allows to assign user role
+	a.ge.POST("/orgs/:orgId/userRoles", a.h_POST_orgs_orgId_userRoles)
+
+	// Removes user role
+	a.ge.DELETE("/orgs/:orgId/userRoles/:userId", a.h_DELETE_orgs_orgId_userRoles_userId)
+
 	// Creates new user. The request accepts password optional field which allows
 	// to set a new password due to creation. If it is not providede the password is empty.
 	a.ge.POST("/users", a.h_POST_users)
@@ -124,6 +133,12 @@ func (a *api) DiPostConstruct() {
 	// Changes the user password. Only owner or superadmin can make the change.
 	// Authenticated session is not affected
 	a.ge.POST("/users/:userId/password", a.h_POST_users_userId_password)
+
+	// Returns user info by the userId. Only owner and superadmin are authorized
+	a.ge.GET("/users/:userId", a.h_GET_users_userId)
+
+	// Returns user roles assigned through all orgs. Only owner and superadmin are authorized
+	a.ge.GET("/users/:userId/userRoles", a.h_GET_users_userId_userRoles)
 
 	// Creates a new profile. The call allows to provide some list of field values
 	//
@@ -357,11 +372,12 @@ func (a *api) h_GET_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 
-	urs, err := a.AuthService.GetUserRoles(orgId, "")
+	// returns everyone for the org
+	urs, err := a.AuthService.GetUserRoles("", orgId)
 	if a.errorResponse(c, err) {
 		return
 	}
-	c.Status(http.StatusOK, a.muserRoles2userRoles(urs))
+	c.JSON(http.StatusOK, a.muserRoles2userRoles(urs))
 }
 
 // Create new User role
@@ -377,6 +393,16 @@ func (a *api) h_POST_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 
+	var ur UserRole
+	if a.errorResponse(c, bindAppJson(c, &ur)) {
+		return
+	}
+	mur := a.userRole2muserRole(&ur)
+	admin := a.authMW.authenticatedUser(c)
+	if a.errorResponse(c, a.AuthService.InserUserRole(admin, orgId, mur)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // Delete a user role
@@ -387,6 +413,17 @@ func (a *api) h_DELETE_orgs_orgId_userRoles_userId(c *gin.Context) {
 	if a.errorResponse(c, err) {
 		return
 	}
+
+	if !a.authorizeOrgAdmin(c, orgId) {
+		return
+	}
+
+	admin := a.authMW.authenticatedUser(c)
+	login := c.Param("userId")
+	if a.errorResponse(c, a.AuthService.RevokeUserRole(admin, orgId, login)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // POST /users - create new user
@@ -416,11 +453,31 @@ func (a *api) h_POST_users(c *gin.Context) {
 // Get a user info
 // GET /users/:userId
 func (a *api) h_GET_users_userId(c *gin.Context) {
+	login := c.Param("userId")
+	if !a.authorizeUser(c, login) {
+		return
+	}
+
+	u, err := a.AuthService.GetUser(login)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, a.muser2user(u))
 }
 
 // Get the user roles
 // GET /users/:userId/userRoles
 func (a *api) h_GET_users_userId_userRoles(c *gin.Context) {
+	login := c.Param("userId")
+	if !a.authorizeUser(c, login) {
+		return
+	}
+
+	urs, err := a.AuthService.GetUserRoles(login, 0)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, a.muserRoles2userRoles(urs))
 }
 
 // POST /users/:userId/password - set new password
@@ -810,6 +867,9 @@ func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 	if err != nil {
 		return -1, errors.New("Expecting an integer value, but got \"" + prm + "\"")
 	}
+	if val < 0 {
+		return -1, common.NewError(common.ERR_INVALID_VAL, "orgId must be positive")
+	}
 	return val, nil
 }
 
@@ -824,6 +884,7 @@ func (a *api) authenticated(c *gin.Context) bool {
 
 func bindAppJson(c *gin.Context, inf interface{}) error {
 	ct := c.ContentType()
+	fmt.Println("content=", ct)
 	if ct != "application/json" {
 		return common.NewError(common.ERR_INVALID_VAL, "Expected content type for the request is 'application/json', but really is "+strconv.Quote(ct))
 	}
@@ -1065,8 +1126,15 @@ func (a *api) user2muser(user *User) *model.User {
 	return u
 }
 
+func (a *api) muser2user(mu *model.User) *User {
+	u := new(User)
+	u.Email = mu.Email
+	u.Login = mu.Login
+	return u
+}
+
 func (a *api) muserRoles2userRoles(mus []*model.UserRole) []*UserRole {
-	if mus == nil || len(mus) {
+	if mus == nil || len(mus) == 0 {
 		return []*UserRole{}
 	}
 	res := make([]*UserRole, len(mus))
@@ -1080,38 +1148,16 @@ func (a *api) muserRole2userRole(mu *model.UserRole) *UserRole {
 	ur := new(UserRole)
 	ur.Login = mu.Login
 	ur.OrgId = mu.OrgId
-	ur.Role = level2urole(mu.Role)
+	ur.Role = (auth.AZLevel(mu.Role)).String()
 	return ur
 }
 
-func level2urole(lvl auth.AZLevel) string {
-	switch lvl {
-	case auth.AUTHZ_LEVEL_SA:
-		return "superadmin"
-	case auth.AUTHZ_LEVEL_OA:
-		return "orgadmin"
-	case auth.AUTHZ_LEVEL_OU:
-		return "orguser"
-	case auth.AUTHZ_LEVEL_NA:
-		return "notassigned"
-	default:
-		return "unknown"
-	}
-}
-
-func urole2level(lvl string) auth.AZLevel {
-	switch lvl {
-	case "superadmin":
-		return auth.AUTHZ_LEVEL_SA
-	case "orgadmin":
-		return auth.AUTHZ_LEVEL_OA
-	case "orguser":
-		return auth.AUTHZ_LEVEL_OU
-	case "notassigned":
-		return auth.AUTHZ_LEVEL_NA
-	default:
-		return auth.AUTHZ_LEVEL_UNKNWN
-	}
+func (a *api) userRole2muserRole(ur *UserRole) *model.UserRole {
+	mur := new(model.UserRole)
+	mur.Login = ur.Login
+	mur.OrgId = ur.OrgId
+	mur.Role = int(auth.AZLevelParse(ur.Role))
+	return mur
 }
 
 func (a *api) fieldInfos2MetaInfos(fieldInfos []*model.FieldInfo) []*OrgMetaInfo {
