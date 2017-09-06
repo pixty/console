@@ -8,6 +8,7 @@ import (
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/model"
+	"github.com/pixty/console/service/auth"
 )
 
 type (
@@ -21,6 +22,18 @@ type (
 		DeleteFieldInfo(orgId, fldId int64) error
 
 		// Users
+		CreateUser(user *model.User) error
+		GetUser(loging string) (*model.User, error)
+		UpdateUser(user *model.User) error
+		SetUserPasswd(user, passwd string) error
+
+		// User Roles
+		InserUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error
+		RevokeUserRole(orgId int64, revokedLogin string) error
+		UpdateUserRoles(login string, orgId int64, urs []*model.UserRole) error
+
+		// Finds users whether by orgId, login or both
+		GetUserRoles(login string, orgId int64) ([]*model.UserRole, error)
 
 		//Cameras
 		GetCameraById(camId string) (*model.Camera, error)
@@ -59,6 +72,7 @@ const (
 )
 
 var camIdRegexp = regexp.MustCompile(`^[a-zA-Z]{1}([0-9a-zA-Z-_]+){2,39}$`)
+var loginRegexp = regexp.MustCompile(`^[a-zA-Z]{1}([0-9a-zA-Z-_]+){2,39}$`)
 
 func NewDataController() DataController {
 	dc := new(dta_controller)
@@ -69,6 +83,13 @@ func NewDataController() DataController {
 func isCamIdValid(camId string) error {
 	if !camIdRegexp.MatchString(camId) {
 		return common.NewError(common.ERR_INVALID_VAL, "Invalid cameraId="+camId+", expected string up to 40 chars length.")
+	}
+	return nil
+}
+
+func checkLogin(login string) error {
+	if !loginRegexp.MatchString(login) {
+		return common.NewError(common.ERR_INVALID_VAL, "Invalid login="+login+", expected string up to 40 chars long.")
 	}
 	return nil
 }
@@ -507,4 +528,145 @@ func checkFieldInfos(fis []*model.FieldInfo, orgId int64) error {
 		}
 	}
 	return nil
+}
+
+func (dc *dta_controller) CreateUser(user *model.User) error {
+	err := checkLogin(user.Login)
+	if err != nil {
+		return err
+	}
+
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+
+	// No password for the new user
+	user.Salt = common.NewSecretKey(16)
+	user.Hash = auth.PasswdHash(user, "")
+	dc.logger.Info("Inserting new user ", user)
+	err = mmp.InsertUser(user)
+	return err
+}
+
+func (dc *dta_controller) GetUser(login string) (*model.User, error) {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return nil, err
+	}
+
+	return mmp.GetUserByLogin(login)
+}
+
+func (dc *dta_controller) UpdateUser(usr *model.User) error {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+
+	err = mmp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mmp.Commit()
+
+	user, err := mmp.GetUserByLogin(usr.Login)
+	if err != nil {
+		return err
+	}
+
+	user.Email = usr.Email
+	return mmp.UpdateUser(user)
+}
+
+func (dc *dta_controller) SetUserPasswd(login, passwd string) error {
+	dc.logger.Info("Changing user password for ", login)
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+	err = mmp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mmp.Commit()
+
+	user, err := mmp.GetUserByLogin(login)
+	if err != nil {
+		return err
+	}
+
+	user.Hash = auth.PasswdHash(user, passwd)
+	return mmp.UpdateUser(user)
+}
+
+func (dc *dta_controller) InserUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+
+	if ur.OrgId != orgId {
+		return common.NewError(common.ERR_INVALID_VAL, "Cannot set User Role with orgId="+strconv.FormatInt(ur.OrgId, 10)+
+			" for orgId="+strconv.FormatInt(orgId, 10))
+	}
+
+	if orgId > 0 && ur.Role > auth.AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_INVALID_VAL, "superadmin User Role could not be assigned for an organization")
+	}
+
+	urLevel := auth.AZLevel(ur.Role)
+	if ur.Role <= auth.AUTHZ_LEVEL_NA {
+		return common.NewError(common.ERR_INVALID_VAL, "Wrong role is provided "+urLevel.String()+
+			", but accepted ones are 'orgadmin' and 'orguser'")
+	}
+
+	err = aCtx.AuthZHasOrgLevel(orgId, auth.AZLevel(ur.Role))
+	if err != nil {
+		return err
+	}
+
+	return mmp.InsertUserRoles([]*model.UserRole{ur})
+}
+
+func (dc *dta_controller) RevokeUserRole(orgId int64, revokedLogin string) error {
+	err := checkLogin(revokedLogin)
+	if err != nil {
+		return err
+	}
+
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+	return mmp.DeleteUserRoles(&model.UserRoleQuery{OrgId: orgId, Login: revokedLogin})
+}
+
+func (dc *dta_controller) UpdateUserRoles(login string, orgId int64, urs []*model.UserRole) error {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return err
+	}
+
+	err = mmp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mmp.Commit()
+
+	err = mmp.DeleteUserRoles(&model.UserRoleQuery{OrgId: orgId, Login: login})
+	if err != nil {
+		mmp.Rollback()
+		return err
+	}
+	return mmp.InsertUserRoles(urs)
+}
+
+func (dc *dta_controller) GetUserRoles(login string, orgId int64) ([]*model.UserRole, error) {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return nil, err
+	}
+
+	return mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId, Login: login})
 }

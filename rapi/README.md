@@ -3,7 +3,7 @@
 Copied from api.go:
 
 ```
-// The ping returns pong and URI of the ping, how we see it.
+	// The ping returns pong and URI of the ping, how we see it.
 	a.ge.GET("/ping", a.h_GET_ping)
 
 	// Returns a composite object which contains list of persons(different faces) seen
@@ -45,6 +45,29 @@ Copied from api.go:
 
 	// Delete an organization field - all data will be lost
 	a.ge.DELETE("/orgs/:orgId/fields/:fldId", a.h_DELETE_orgs_orgId_fields_fldId)
+
+	// returns list of user roles assignments
+	a.ge.GET("/orgs/:orgId/userRoles", a.h_GET_orgs_orgId_userRoles)
+
+	// Allows to assign user role
+	a.ge.POST("/orgs/:orgId/userRoles", a.h_POST_orgs_orgId_userRoles)
+
+	// Removes user role
+	a.ge.DELETE("/orgs/:orgId/userRoles/:userId", a.h_DELETE_orgs_orgId_userRoles_userId)
+
+	// Creates new user. The request accepts password optional field which allows
+	// to set a new password due to creation. If it is not providede the password is empty.
+	a.ge.POST("/users", a.h_POST_users)
+
+	// Changes the user password. Only owner or superadmin can make the change.
+	// Authenticated session is not affected
+	a.ge.POST("/users/:userId/password", a.h_POST_users_userId_password)
+
+	// Returns user info by the userId. Only owner and superadmin are authorized
+	a.ge.GET("/users/:userId", a.h_GET_users_userId)
+
+	// Returns user roles assigned through all orgs. Only owner and superadmin are authorized
+	a.ge.GET("/users/:userId/userRoles", a.h_GET_users_userId_userRoles)
 
 	// Creates a new profile. The call allows to provide some list of field values
 	//
@@ -92,6 +115,14 @@ Copied from api.go:
 	a.ge.POST("/cameras/:camId/newkey", a.h_POST_cameras_camId_newkey)
 	
 ```
+
+# How to authenticate
+Provide Basic authentication if the user will be authenticated successfully the response will contain:
+X-Pixty-Session header with the session id, and sets the cookie session.
+
+Further calls MUST use whether the X-Pixty-Session header or the cookie. You should not try to 
+use basic auth again, because it will produce new session. The number of the sessions are limited, so 
+if you hit the range you cannot be logged in unless some sessions are time-outed. 
 
 # Examples
 // Create a new user

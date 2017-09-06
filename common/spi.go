@@ -3,6 +3,7 @@ package common
 import (
 	crand "crypto/rand"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -94,7 +95,8 @@ const (
 	ERR_INVALID_VAL                 = 2
 	ERR_LIMIT_VIOLATION             = 3
 	ERR_WRONG_CREDENTIALS           = 4
-	ERR_UNAUTHORIZED                = 5
+	ERR_AUTH_REQUIRED               = 5
+	ERR_UNAUTHORIZED                = 6
 
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
 	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_^-()@#$%"
@@ -129,7 +131,7 @@ func NewSecretKey(lng int) string {
 func NewSession() string {
 	val := make([]byte, 32)
 	Rand(val)
-	return HashBytes(val)
+	return HashBytesUrlSafe(val)
 }
 
 func Hash(password string) string {
@@ -139,6 +141,11 @@ func Hash(password string) string {
 func HashBytes(bts []byte) string {
 	h := sha256.Sum256(bts)
 	return base64.StdEncoding.EncodeToString(h[:])
+}
+
+func HashBytesUrlSafe(bts []byte) string {
+	h := sha256.Sum256(bts)
+	return base32.StdEncoding.EncodeToString(h[:])
 }
 
 func Rand(bts []byte) {

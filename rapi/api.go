@@ -34,7 +34,6 @@ type api struct {
 	Dc           service.DataController `inject:""`
 	SessService  auth.SessionService    `inject:""`
 	AuthService  auth.AuthService       `inject:""`
-	basicAuthF   gin.HandlerFunc
 	authMW       *auth_middleware
 	logger       log4g.Logger
 }
@@ -68,14 +67,20 @@ func (a *api) DiPostConstruct() {
 	// Request logger middleware
 	a.ge.Use(a.PrintRequest)
 	// Basic authentication scheme
-	a.basicAuthF = a.authMW.basicAuthMiddleware("")
-	// Don't use it as midleware, but in each request explisitly!
-	// a.ge.Use(basicAuthF)
+	a.ge.Use(a.authMW.basicAuth)
+	// Session and cokie auth scheme
+	a.ge.Use(a.authMW.sessionAuth)
 
 	a.logger.Info("Constructing ReST API")
 
 	// The ping returns pong and URI of the ping, how we see it.
 	a.ge.GET("/ping", a.h_GET_ping)
+
+	// Create new secured session JSON {"login": "user", "password": "abc"} is exepected
+	a.ge.POST("/sessions", a.h_POST_sessions)
+
+	// Delete session by its sessionId
+	a.ge.DELETE("/sessions/:sessId", a.h_DELETE_sessions_sessId)
 
 	// Returns a composite object which contains list of persons(different faces) seen
 	// from a time (or last seen) sorted in descending order. Every object in the list
@@ -191,6 +196,62 @@ func (a *api) DiPostConstruct() {
 func (a *api) h_GET_ping(c *gin.Context) {
 	a.logger.Debug("GET /ping")
 	c.String(http.StatusOK, "pong URL conversion is "+composeURI(c.Request, ""))
+}
+
+// POST /sessions
+func (a *api) h_POST_sessions(c *gin.Context) {
+	var user User
+	if a.errorResponse(c, bindAppJson(c, &user)) {
+		return
+	}
+
+	passwd := ptr2string(user.Password, "")
+	ok, err := a.AuthService.AuthN(user.Login, passwd)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	if !ok {
+		a.logger.Warn("Wrong credentials when session is create for user=", user.Login)
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	sd, err := a.SessService.NewSession(user.Login)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	// set cookie, header and the response
+	sessId := sd.Session()
+	w := c.Writer
+	c.Header(cSessHeaderName, sessId)
+	cookie := &http.Cookie{Name: cSessCookieName, Value: sessId, Expires: time.Now().Add(365 * 24 * time.Hour)}
+	http.SetCookie(w, cookie)
+	uri := composeURI(c.Request, sessId)
+	a.logger.Info("New session for ", user.Login, " has been just created")
+	w.Header().Set("Location", uri)
+	c.Status(http.StatusCreated)
+}
+
+// DELETE /sessions/:sessId
+func (a *api) h_DELETE_sessions_sessId(c *gin.Context) {
+	sessId := c.Param("sessId")
+	sd := a.SessService.GetBySession(sessId)
+	if sd == nil {
+		a.logger.Warn("No session with sessId=", sessId)
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZUser(sd.User())) {
+		return
+	}
+
+	a.logger.Info("Deleting sessId=", sessId)
+	a.SessService.DeleteSesion(sessId)
+	c.Status(http.StatusNoContent)
 }
 
 // Returns timeline object for the camera. The timeline object contains list
@@ -368,12 +429,13 @@ func (a *api) h_GET_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 
-	if !a.authorizeOrgAdmin(c, orgId) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
 	// returns everyone for the org
-	urs, err := a.AuthService.GetUserRoles("", orgId)
+	urs, err := a.Dc.GetUserRoles("", orgId)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -389,7 +451,8 @@ func (a *api) h_POST_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 
-	if !a.authorizeOrgAdmin(c, orgId) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
@@ -398,8 +461,7 @@ func (a *api) h_POST_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 	mur := a.userRole2muserRole(&ur)
-	admin := a.authMW.authenticatedUser(c)
-	if a.errorResponse(c, a.AuthService.InserUserRole(admin, orgId, mur)) {
+	if a.errorResponse(c, a.Dc.InserUserRole(aCtx, orgId, mur)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -414,13 +476,13 @@ func (a *api) h_DELETE_orgs_orgId_userRoles_userId(c *gin.Context) {
 		return
 	}
 
-	if !a.authorizeOrgAdmin(c, orgId) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
-	admin := a.authMW.authenticatedUser(c)
 	login := c.Param("userId")
-	if a.errorResponse(c, a.AuthService.RevokeUserRole(admin, orgId, login)) {
+	if a.errorResponse(c, a.Dc.RevokeUserRole(orgId, login)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -434,12 +496,12 @@ func (a *api) h_POST_users(c *gin.Context) {
 	}
 	a.logger.Info("Creating new user ", usr)
 	mu := a.user2muser(usr)
-	if a.errorResponse(c, a.AuthService.CreateUser(mu)) {
+	if a.errorResponse(c, a.Dc.CreateUser(mu)) {
 		return
 	}
 
 	if usr.Password != nil {
-		if err := a.AuthService.SetUserPasswd(usr.Login, ptr2string(usr.Password, "")); err != nil {
+		if err := a.Dc.SetUserPasswd(usr.Login, ptr2string(usr.Password, "")); err != nil {
 			a.logger.Warn("Could not set user password for new user ", usr.Login, ", err=", err, ". Will leave it intact")
 		}
 	}
@@ -454,11 +516,12 @@ func (a *api) h_POST_users(c *gin.Context) {
 // GET /users/:userId
 func (a *api) h_GET_users_userId(c *gin.Context) {
 	login := c.Param("userId")
-	if !a.authorizeUser(c, login) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZUser(login)) {
 		return
 	}
 
-	u, err := a.AuthService.GetUser(login)
+	u, err := a.Dc.GetUser(login)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -469,11 +532,12 @@ func (a *api) h_GET_users_userId(c *gin.Context) {
 // GET /users/:userId/userRoles
 func (a *api) h_GET_users_userId_userRoles(c *gin.Context) {
 	login := c.Param("userId")
-	if !a.authorizeUser(c, login) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZUser(login)) {
 		return
 	}
 
-	urs, err := a.AuthService.GetUserRoles(login, 0)
+	urs, err := a.Dc.GetUserRoles(login, 0)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -483,7 +547,8 @@ func (a *api) h_GET_users_userId_userRoles(c *gin.Context) {
 // POST /users/:userId/password - set new password
 func (a *api) h_POST_users_userId_password(c *gin.Context) {
 	login := c.Param("userId")
-	if !a.authorizeUser(c, login) {
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZUser(login)) {
 		return
 	}
 
@@ -492,7 +557,7 @@ func (a *api) h_POST_users_userId_password(c *gin.Context) {
 		return
 	}
 
-	err := a.AuthService.SetUserPasswd(login, ptr2string(usr.Password, ""))
+	err := a.Dc.SetUserPasswd(login, ptr2string(usr.Password, ""))
 	if a.errorResponse(c, err) {
 		a.logger.Warn("Could not set user password for user ", login, ", err=", err, ". Will leave it intact")
 		return
@@ -793,6 +858,10 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 }
 
 // ================================ Helpers ==================================
+func (a *api) getAuthContext(c *gin.Context) auth.Context {
+	return a.authMW.getAuthContext(c)
+}
+
 func (a *api) String() string {
 	return "api: {}"
 }
@@ -873,14 +942,14 @@ func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 	return val, nil
 }
 
-func (a *api) authenticated(c *gin.Context) bool {
-	a.basicAuthF(c)
-	if c.IsAborted() {
-		a.logger.Warn("Auhtentication required for ", reqOp(c))
-		return false
-	}
-	return true
-}
+//func (a *api) authenticated(c *gin.Context) bool {
+//	a.basicAuthF(c)
+//	if c.IsAborted() {
+//		a.logger.Warn("Auhtentication required for ", reqOp(c))
+//		return false
+//	}
+//	return true
+//}
 
 func bindAppJson(c *gin.Context, inf interface{}) error {
 	ct := c.ContentType()
@@ -897,30 +966,107 @@ func reqOp(c *gin.Context) string {
 
 // Authenticate the request and authorize the provided login. Will return true
 // if the user is authenticated and it is same as login or superadmin
-func (a *api) authorizeUser(c *gin.Context, login string) bool {
-	if !a.authenticated(c) {
-		return false
-	}
-	if !a.authMW.isUserOrSuperadmin(c, login) {
-		a.logger.Warn("Unathorized ", reqOp(c), " for login=", login, " performed by ", a.authMW.authenticatedUser(c))
-		c.Status(http.StatusForbidden)
-		return false
-	}
-	return true
-}
+//func (a *api) authorizeUser(c *gin.Context, login string) bool {
+//	if !a.authenticated(c) {
+//		return false
+//	}
+//	if !a.authMW.isUserOrSuperadmin(c, login) {
+//		a.logger.Warn("Unathorized ", reqOp(c), " for login=", login, " performed by ", a.authMW.authenticatedUser(c))
+//		c.Status(http.StatusForbidden)
+//		return false
+//	}
+//	return true
+//}
 
 // Authenticate the request and authorize the call if the user is superadmin
 // or org admin
-func (a *api) authorizeOrgAdmin(c *gin.Context, orgId int64) bool {
-	if !a.authenticated(c) {
+//func (a *api) authorizeOrgAdmin(c *gin.Context, orgId int64) bool {
+//	if !a.authenticated(c) {
+//		return false
+//	}
+//	if !a.authMW.isOrgAdmin(c, orgId) {
+//		a.logger.Warn("Unathorized ", reqOp(c), " for orgId==", orgId, " performed by ", a.authMW.authenticatedUser(c))
+//		c.Status(http.StatusForbidden)
+//		return false
+//	}
+//	return true
+//}
+
+func (a *api) errorResponse(c *gin.Context, err error) bool {
+	if err == nil {
 		return false
 	}
-	if !a.authMW.isOrgAdmin(c, orgId) {
-		a.logger.Warn("Unathorized ", reqOp(c), " for orgId==", orgId, " performed by ", a.authMW.authenticatedUser(c))
-		c.Status(http.StatusForbidden)
-		return false
+
+	if common.CheckError(err, common.ERR_NOT_FOUND) {
+		a.logger.Warn("Not Found err=", err)
+		c.JSON(http.StatusNotFound, err.Error())
+		return true
 	}
+
+	if common.CheckError(err, common.ERR_AUTH_REQUIRED) || common.CheckError(err, common.ERR_WRONG_CREDENTIALS) {
+		a.logger.Warn("Auhtentication required for ", reqOp(c))
+		c.Header("WWW-Authenticate", "Authorization Required")
+		cookie := &http.Cookie{Name: "session", Value: "", Expires: time.Now()}
+		http.SetCookie(c.Writer, cookie)
+		c.Status(http.StatusUnauthorized)
+		return true
+	}
+
+	if common.CheckError(err, common.ERR_UNAUTHORIZED) {
+		a.logger.Warn("Unauthorized request for ", reqOp(c), " err=", err)
+		c.JSON(http.StatusForbidden, err.Error())
+		return true
+	}
+
+	if common.CheckError(err, common.ERR_INVALID_VAL) || common.CheckError(err, common.ERR_LIMIT_VIOLATION) {
+		a.logger.Warn("Bad request for ", reqOp(c), " err=", err)
+		c.JSON(http.StatusBadRequest, err.Error())
+		return true
+	}
+
+	a.logger.Warn("Bad request err=", err)
+	c.JSON(http.StatusInternalServerError, err.Error())
 	return true
+}
+
+func composeURI(r *http.Request, id string) string {
+	var resURL string
+	if r.URL.IsAbs() {
+		resURL = path.Join(r.URL.String(), id)
+	} else {
+		resURL = resolveScheme(r) + "://" + path.Join(resolveHost(r), r.URL.String(), id)
+	}
+	return resURL
+}
+
+func resolveScheme(r *http.Request) string {
+	switch {
+	case r.Header.Get("X-Forwarded-Proto") == "https":
+		return "https"
+	case r.URL.Scheme == "https":
+		return "https"
+	case r.TLS != nil:
+		return "https"
+	case strings.HasPrefix(r.Proto, "HTTPS"):
+		return "https"
+	default:
+		return "http"
+	}
+}
+
+func resolveHost(r *http.Request) (host string) {
+	switch {
+	case r.Header.Get("X-Forwarded-For") != "":
+		return r.Header.Get("X-Forwarded-For")
+	case r.Header.Get("X-Host") != "":
+		return r.Header.Get("X-Host")
+	case r.Host != "":
+		return r.Host
+	case r.URL.Host != "":
+		return r.URL.Host
+	default:
+		return ""
+	}
 }
 
 //============================== Transformers ================================
@@ -1234,60 +1380,4 @@ func (a *api) prfAttrb2prfMeta(pa *ProfileAttribute) *model.ProfileMeta {
 	pm.Value = ptr2string(pa.Value, "")
 	pm.DisplayName = ptr2string(pa.Name, "")
 	return pm
-}
-
-func (a *api) errorResponse(c *gin.Context, err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if common.CheckError(err, common.ERR_NOT_FOUND) {
-		a.logger.Warn("Not Found err=", err)
-		c.JSON(http.StatusNotFound, err.Error())
-		return true
-	}
-
-	a.logger.Warn("Bad request err=", err)
-	c.JSON(http.StatusBadRequest, err.Error())
-	return true
-}
-
-func composeURI(r *http.Request, id string) string {
-	var resURL string
-	if r.URL.IsAbs() {
-		resURL = path.Join(r.URL.String(), id)
-	} else {
-		resURL = resolveScheme(r) + "://" + path.Join(resolveHost(r), r.URL.String(), id)
-	}
-	return resURL
-}
-
-func resolveScheme(r *http.Request) string {
-	switch {
-	case r.Header.Get("X-Forwarded-Proto") == "https":
-		return "https"
-	case r.URL.Scheme == "https":
-		return "https"
-	case r.TLS != nil:
-		return "https"
-	case strings.HasPrefix(r.Proto, "HTTPS"):
-		return "https"
-	default:
-		return "http"
-	}
-}
-
-func resolveHost(r *http.Request) (host string) {
-	switch {
-	case r.Header.Get("X-Forwarded-For") != "":
-		return r.Header.Get("X-Forwarded-For")
-	case r.Header.Get("X-Host") != "":
-		return r.Header.Get("X-Host")
-	case r.Host != "":
-		return r.Host
-	case r.URL.Host != "":
-		return r.URL.Host
-	default:
-		return ""
-	}
 }

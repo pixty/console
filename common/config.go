@@ -80,7 +80,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.LbsMaxSize = "20G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	cc.ImgsTmpTTLSec = 60
-	cc.AuthMaxSessions = 30   // same user can open up to 30 sessions (so far, then will reduce)
+	cc.AuthMaxSessions = 3    // same user can open up to 3 sessions (so far, then will reduce)
 	cc.AuthSessionTOSec = 300 // kick it out in 5 minutes
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jrivets/log4g"
+	"github.com/pixty/console/common"
 	"github.com/pixty/console/service/auth"
 )
 
@@ -18,12 +19,18 @@ type (
 		sessService auth.SessionService
 		logger      log4g.Logger
 	}
+
+	auth_ctx struct {
+		am       *auth_middleware
+		login    string
+		sessDesc auth.SessionDesc
+	}
 )
 
 const (
-	cPixtyLoginCtxParam = "PixtyLogin"
-	cSessCookieName     = "session"
-	cSessHeaderName     = "X-Pixty-Session"
+	cPixtyCtxParam  = "PxtyCtx"
+	cSessCookieName = "session"
+	cSessHeaderName = "X-Pixty-Session"
 )
 
 func newAuthMW(authServ auth.AuthService, sessService auth.SessionService) *auth_middleware {
@@ -34,33 +41,74 @@ func newAuthMW(authServ auth.AuthService, sessService auth.SessionService) *auth
 	return am
 }
 
-func (am *auth_middleware) basicAuthMiddleware(realm string) gin.HandlerFunc {
-	if realm == "" {
-		realm = "Authorization Required"
-	}
-	realm = "Basic realm=" + strconv.Quote(realm)
-	return func(c *gin.Context) {
-		if !am.basicAuth(c) && !am.sessionAuth(c) {
-			c.Header("WWW-Authenticate", realm)
-			c.AbortWithStatus(http.StatusUnauthorized)
-			cookie := &http.Cookie{Name: cSessCookieName, Value: "", Expires: time.Now()}
-			http.SetCookie(c.Writer, cookie)
-			return
-		}
-		c.Next()
-	}
+func isAuthContext(c *gin.Context) bool {
+	_, ok := c.Get(cPixtyCtxParam)
+	return ok
 }
 
-func (am *auth_middleware) basicAuth(c *gin.Context) bool {
+func (am *auth_middleware) getAuthContext(c *gin.Context) auth.Context {
+	ac, ok := c.Get(cPixtyCtxParam)
+	if ok {
+		return ac.(*auth_ctx)
+	}
+	return am.newAuthContext(c, "")
+}
+
+func (am *auth_middleware) newAuthContext(c *gin.Context, login string) *auth_ctx {
+	ac := new(auth_ctx)
+	ac.am = am
+	ac.login = login
+	c.Set(cPixtyCtxParam, ac)
+	return ac
+}
+
+func (am *auth_middleware) newAuthContextBySession(c *gin.Context, sd auth.SessionDesc) *auth_ctx {
+	ac := new(auth_ctx)
+	ac.am = am
+	ac.login = sd.User()
+	ac.sessDesc = sd
+	c.Set(cPixtyCtxParam, ac)
+	return ac
+}
+
+// Returns function which tries to make basic authentication. Creates context if
+// successful
+//func (am *auth_middleware) basicAuthMiddleware(realm string) gin.HandlerFunc {
+//	if realm == "" {
+//		realm = "Authorization Required"
+//	}
+//	realm = "Basic realm=" + strconv.Quote(realm)
+//	return func(c *gin.Context) {
+//		if !am.basicAuth(c) && !am.sessionAuth(c) {
+//			c.Header("WWW-Authenticate", realm)
+//			c.AbortWithStatus(http.StatusUnauthorized)
+//			cookie := &http.Cookie{Name: cSessCookieName, Value: "", Expires: time.Now()}
+//			http.SetCookie(c.Writer, cookie)
+//			return
+//		}
+//		c.Next()
+//	}
+//}
+
+// Uses basic authentication and creates new context, if needed
+func (am *auth_middleware) basicAuth(c *gin.Context) {
+	if isAuthContext(c) {
+		am.logger.Debug("Skip basic authentication, there is already auth context")
+		return
+	}
+
 	basic := c.Request.Header.Get("Authorization")
 	if !strings.HasPrefix(strings.ToLower(basic), "basic ") {
-		return false
+		am.logger.Debug("Skip basic authentication, no header")
+		return
 	}
+
 	bts, err := base64.StdEncoding.DecodeString(basic[6:])
 	if err != nil {
-		am.logger.Debug("Could not decode base64 for value=", basic[6:], " header=", basic)
-		return false
+		am.logger.Warn("Could not decode base64 for value=", basic[6:], " header=", basic, " skip authentication")
+		return
 	}
+
 	usrPasswd := string(bts)
 	idx := strings.Index(usrPasswd, ":")
 	if idx > 0 {
@@ -69,39 +117,62 @@ func (am *auth_middleware) basicAuth(c *gin.Context) bool {
 		ok, err := am.authServ.AuthN(user, passwd)
 		if err != nil {
 			am.logger.Error("Could not authenticate user=", user, ", got the err=", err)
-			return false
+			return
 		}
 
-		if ok {
-			oldSessId := am.getRequestSession(c)
-			if oldSessId != "" {
-				am.logger.Info("Re-issue session due to new basic authentication, the old session=", oldSessId, " will be deleted.")
-				am.sessService.DeleteSesion(oldSessId)
-			}
-
-			sd, err := am.sessService.NewSession(user)
-			if err != nil {
-				am.logger.Warn("Could not create new session for user=", user, ", err=", err)
-				return false
-			}
-
-			// remember login in the conxtext
-			c.Set(cPixtyLoginCtxParam, sd.User())
-			am.setCookieAndSessId(c, sd.Session())
+		if !ok {
+			am.logger.Warn("Wrong credentials for user=", user)
+			return
 		}
 
-		return ok
+		am.newAuthContext(c, user)
+		//		if ok {
+		//			oldSessId := am.getRequestSession(c)
+		//			if oldSessId != "" {
+		//				am.logger.Info("Re-issue session due to new basic authentication, the old session=", oldSessId, " will be deleted.")
+		//				am.sessService.DeleteSesion(oldSessId)
+		//			}
+
+		//			sd, err := am.sessService.NewSession(user)
+		//			if err != nil {
+		//				am.logger.Warn("Could not create new session for user=", user, ", err=", err)
+		//				return false
+		//			}
+
+		//			// remember login in the conxtext
+		//			c.Set(cPixtyLoginCtxParam, sd.User())
+		//			am.setCookieAndSessId(c, sd.Session())
+		//		}
+
+		return
 	}
-	am.logger.Warn("Got basic auth header=", basic, ", but it has ", usrPasswd, " after encoding(no : separator!)")
-	return false
+	am.logger.Warn("Got basic auth header=", basic, ", but it has ", usrPasswd, " after encoding(no colon in between)")
+	return
 }
 
-func (am *auth_middleware) sessionAuth(c *gin.Context) bool {
+// Does session/cookie authentication and creates the context if needed
+func (am *auth_middleware) sessionAuth(c *gin.Context) {
+	if isAuthContext(c) {
+		am.logger.Debug("Skip session authentication, there is already auth context")
+		return
+	}
+
 	sessId := am.getRequestSession(c)
 	if sessId == "" {
-		return false
+		am.logger.Debug("Did not find header or session cookie, still not authenticated...")
+		return
 	}
-	return am.isValidSession(c, sessId)
+
+	sd := am.sessService.GetBySession(sessId)
+	if sd == nil {
+		am.logger.Debug("Could not authenticate by sessionId=", sessId, " remove cookie just in case")
+		cookie := &http.Cookie{Name: cSessCookieName, Value: "", Expires: time.Now()}
+		http.SetCookie(c.Writer, cookie)
+		return
+	}
+
+	am.logger.Debug("Authenticated by sessionId=", sessId)
+	am.newAuthContextBySession(c, sd)
 }
 
 func (am *auth_middleware) getRequestSession(c *gin.Context) string {
@@ -118,50 +189,104 @@ func (am *auth_middleware) getRequestSession(c *gin.Context) string {
 	return sessId
 }
 
-func (am *auth_middleware) isValidSession(c *gin.Context, sessId string) bool {
-	sd := am.sessService.GetBySession(sessId)
-	if sd == nil {
+//=============================== auth_ctx ===================================
+var cAuthnErr = common.NewError(common.ERR_AUTH_REQUIRED, "The call requires authentication")
+
+func (ac *auth_ctx) AuthN() error {
+	if ac.login == "" {
+		return cAuthnErr
+	}
+	return nil
+}
+
+func (ac *auth_ctx) IsSuperadmin() bool {
+	if ac.login == "" {
 		return false
 	}
-	am.logger.Debug("Found session descriptor by sessionId: ", sd)
-
-	// remember login in the conxtext
-	c.Set(cPixtyLoginCtxParam, sd.User())
-	return true
-}
-
-func (am *auth_middleware) setCookieAndSessId(c *gin.Context, sessId string) {
-	c.Header(cSessHeaderName, sessId)
-	cookie := &http.Cookie{Name: cSessCookieName, Value: sessId, Expires: time.Now().Add(365 * 24 * time.Hour)}
-	http.SetCookie(c.Writer, cookie)
-}
-
-func (am *auth_middleware) authenticatedUser(c *gin.Context) string {
-	un, ok := c.Get(cPixtyLoginCtxParam)
-	if !ok {
-		return ""
-	}
-	return un.(string)
-}
-
-// Checks authenticated user from context(context) with provided login.
-// returns true if the context user and login are same, or context user is superadmin
-func (am *auth_middleware) isUserOrSuperadmin(c *gin.Context, login string) bool {
-	user := am.authenticatedUser(c)
-	return user != "" && (login == user || am.isSuperadmin(user))
-}
-
-// returns true if the context user is org admin, or context user is superadmin
-func (am *auth_middleware) isOrgAdmin(c *gin.Context, orgId int64) bool {
-	user := am.authenticatedUser(c)
-	if user == "" {
-		return false
-	}
-	al, err := am.authServ.AuthZ(user, orgId)
-	return err == nil && al >= auth.AUTHZ_LEVEL_OA
-}
-
-func (am *auth_middleware) isSuperadmin(login string) bool {
-	al, err := am.authServ.AuthZ(login, 0)
+	al, err := ac.am.authServ.AuthZ(ac.login, 0)
 	return err == nil && al == auth.AUTHZ_LEVEL_SA
 }
+
+func (ac *auth_ctx) AuthZOrgAdmin(orgId int64) error {
+	err := ac.AuthN()
+	if err != nil {
+		return err
+	}
+
+	al, err := ac.am.authServ.AuthZ(ac.login, orgId)
+	if err != nil {
+		return err
+	}
+	if al < auth.AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_UNAUTHORIZED, "Only organization admins are authorized to make the call")
+	}
+	return nil
+}
+
+func (ac *auth_ctx) AuthZUser(userLogin string) error {
+	err := ac.AuthN()
+	if err != nil {
+		return err
+	}
+
+	if userLogin == ac.login || ac.IsSuperadmin() {
+		return nil
+	}
+	return common.NewError(common.ERR_UNAUTHORIZED, "Only "+userLogin+" user is authorized to make the call")
+}
+
+func (ac *auth_ctx) AuthZHasOrgLevel(orgId int64, level auth.AZLevel) error {
+	err := ac.AuthN()
+	if err != nil {
+		return err
+	}
+
+	azl, err := ac.am.authServ.AuthZ(ac.login, orgId)
+	if err != nil {
+		return err
+	}
+	if azl < level || azl < auth.AUTHZ_LEVEL_OA {
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" requered to be "+level.String()+", but the user has "+azl.String()+" role for orgId="+strconv.FormatInt(orgId, 10))
+	}
+	return nil
+}
+
+func (ac *auth_ctx) UserLogin() string {
+	return ac.login
+}
+
+//func (am *auth_middleware) setCookieAndSessId(c *gin.Context, sessId string) {
+//	c.Header(cSessHeaderName, sessId)
+//	cookie := &http.Cookie{Name: cSessCookieName, Value: sessId, Expires: time.Now().Add(365 * 24 * time.Hour)}
+//	http.SetCookie(c.Writer, cookie)
+//}
+
+//func (am *auth_middleware) authenticatedUser(c *gin.Context) string {
+//	un, ok := c.Get(cPixtyLoginCtxParam)
+//	if !ok {
+//		return ""
+//	}
+//	return un.(string)
+//}
+
+//// Checks authenticated user from context(context) with provided login.
+//// returns true if the context user and login are same, or context user is superadmin
+//func (am *auth_middleware) isUserOrSuperadmin(c *gin.Context, login string) bool {
+//	user := am.authenticatedUser(c)
+//	return user != "" && (login == user || am.isSuperadmin(user))
+//}
+
+//// returns true if the context user is org admin, or context user is superadmin
+//func (am *auth_middleware) isOrgAdmin(c *gin.Context, orgId int64) bool {
+//	user := am.authenticatedUser(c)
+//	if user == "" {
+//		return false
+//	}
+//	al, err := am.authServ.AuthZ(user, orgId)
+//	return err == nil && al >= auth.AUTHZ_LEVEL_OA
+//}
+
+//func (am *auth_middleware) isSuperadmin(login string) bool {
+//	al, err := am.authServ.AuthZ(login, 0)
+//	return err == nil && al == auth.AUTHZ_LEVEL_SA
+//}
