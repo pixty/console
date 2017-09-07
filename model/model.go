@@ -198,7 +198,7 @@ type (
 		DeleteFieldInfo(fldInfo *FieldInfo) error
 
 		// ==== Profiles ====
-		CheckProfileInOrg(prId, orgId int64) (bool, error)
+		CheckProfileInOrgWithCam(prId int64, camId string) (bool, error)
 		InsertProfile(prf *Profile) (int64, error)
 		UpdateProfile(prf *Profile) error
 		DeleteProfile(prfId int64) error

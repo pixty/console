@@ -900,10 +900,10 @@ func (mpp *msql_part_tx) GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
 	return res, nil
 }
 
-func (mpp *msql_part_tx) CheckProfileInOrg(prId, orgId int64) (bool, error) {
-	rows, err := mpp.executor().Query("SELECT p.id FROM profile AS p WHERE p.id=? AND p.org_id=?", prId, orgId)
+func (mpp *msql_part_tx) CheckProfileInOrgWithCam(prId int64, camId string) (bool, error) {
+	rows, err := mpp.executor().Query("SELECT p.id FROM profile AS p WHERE p.id=? AND p.org_id= (SELECT org_id FROM camera WHERE id=?)", prId, camId)
 	if err != nil {
-		mpp.logger.Warn("CheckProfileInOrg(): err=", err)
+		mpp.logger.Warn("CheckProfileInOrgWithCam(): err=", err)
 		return false, err
 	}
 	defer rows.Close()

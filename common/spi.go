@@ -3,7 +3,7 @@ package common
 import (
 	crand "crypto/rand"
 	"crypto/sha256"
-	"encoding/base32"
+	//"encoding/base32"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -99,7 +99,8 @@ const (
 	ERR_UNAUTHORIZED                = 6
 
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
-	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm_^-()@#$%"
+	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnazx_^-()@#$%"
+	SESSION_ALPHABET    = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnazx"
 )
 
 // ================================= Misc ====================================
@@ -120,18 +121,39 @@ func NewSecretKey(lng int) string {
 	val := make([]byte, lng)
 	Rand(val)
 
-	ab := len(SECRET_KEY_ALPHABET)
-	for i := 0; i < lng; i++ {
-		idx := int(val[i]) % ab
-		val[i] = SECRET_KEY_ALPHABET[idx]
+	return bytes2String(val, SECRET_KEY_ALPHABET, 7)
+}
+
+// turn bytes to string. val will be affected
+func bytes2String(val []byte, abet string, bits int) string {
+	cap := len(val) * 8 / bits
+	abl := len(abet)
+	res := make([]byte, 0, cap)
+	mask := (1 << uint(bits)) - 1
+	i := 0
+	shft := 0
+	for i < len(val) {
+		b := int(val[i]) >> uint(shft)
+		bSize := 8 - shft
+		if bSize <= bits {
+			i++
+			if i < (len(val)) {
+				shft = bits - bSize
+				b |= int(val[i]) << uint(bSize)
+			}
+		} else {
+			shft += bits
+		}
+		res = append(res, abet[(b&mask)%abl])
 	}
-	return string(val)
+	return string(res)
 }
 
 func NewSession() string {
 	val := make([]byte, 32)
 	Rand(val)
-	return HashBytesUrlSafe(val)
+	h := sha256.Sum256(val)
+	return bytes2String(h[:], SESSION_ALPHABET, 6)
 }
 
 func Hash(password string) string {
@@ -141,11 +163,6 @@ func Hash(password string) string {
 func HashBytes(bts []byte) string {
 	h := sha256.Sum256(bts)
 	return base64.StdEncoding.EncodeToString(h[:])
-}
-
-func HashBytesUrlSafe(bts []byte) string {
-	h := sha256.Sum256(bts)
-	return base32.StdEncoding.EncodeToString(h[:])
 }
 
 func Rand(bts []byte) {

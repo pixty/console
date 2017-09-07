@@ -39,17 +39,17 @@ type (
 		GetCameraById(camId string) (*model.Camera, error)
 		GetAllCameras(orgId int64) ([]*model.Camera, error)
 		NewCamera(mcam *model.Camera) error
-		NewCameraKey(camId string, orgId int64) (*model.Camera, string, error)
+		NewCameraKey(camId string) (*model.Camera, string, error)
 
 		// Profiles
 		InsertProfile(prf *model.Profile) (int64, error)
 		UpdateProfile(prf *model.Profile) error
-		DeleteProfile(prfId, orgId int64) error
+		DeleteProfile(aCtx auth.Context, orgId int64) error
 		GetProfile(prfId int64) (*model.Profile, error)
 
 		// Persons
-		DescribePerson(pId string, orgId int64, includeDetails, includeMeta bool) (*PersonDesc, error)
-		UpdatePerson(mp *model.Person, orgId int64) error
+		DescribePerson(aCtx auth.Context, pId string, includeDetails, includeMeta bool) (*PersonDesc, error)
+		UpdatePerson(mp *model.Person) error
 	}
 
 	PersonDesc struct {
@@ -240,7 +240,7 @@ func (dc *dta_controller) NewCamera(cam *model.Camera) error {
 
 }
 
-func (dc *dta_controller) NewCameraKey(camId string, orgId int64) (*model.Camera, string, error) {
+func (dc *dta_controller) NewCameraKey(camId string) (*model.Camera, string, error) {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, "", err
@@ -249,11 +249,6 @@ func (dc *dta_controller) NewCameraKey(camId string, orgId int64) (*model.Camera
 	cam, err := mpp.GetCameraById(camId)
 	if err != nil {
 		return nil, "", err
-	}
-
-	if cam.OrgId != orgId {
-		dc.logger.Warn("The camera camId=", camId, " not in the target orgId=", orgId, " reports not found...")
-		return nil, "", common.NewError(common.ERR_NOT_FOUND, "No camera with id="+camId)
 	}
 
 	sk := common.NewSecretKey(8)
@@ -368,7 +363,7 @@ func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
 	return dc.insertProfileMeta(prf, mpp)
 }
 
-func (dc *dta_controller) DeleteProfile(prfId, orgId int64) error {
+func (dc *dta_controller) DeleteProfile(aCtx auth.Context, prfId int64) error {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return err
@@ -384,9 +379,14 @@ func (dc *dta_controller) DeleteProfile(prfId, orgId int64) error {
 		return err
 	}
 
-	if prfs == nil || len(prfs) == 0 || (prfs[0].OrgId != orgId && orgId > 0) {
-		dc.logger.Debug("No profiles found by id=", prfId, " for the orgId=", orgId, ", query result was ", prfs)
+	if prfs == nil || len(prfs) == 0 {
+		dc.logger.Debug("No profiles found by id=", prfId)
 		return common.NewError(common.ERR_NOT_FOUND, "Could not find profile by id="+strconv.FormatInt(prfId, 10))
+	}
+
+	err = aCtx.AuthZOrgAdmin(prfs[0].OrgId)
+	if err != nil {
+		return err
 	}
 
 	// in case of error we will commit the transaction either. It's ok
@@ -398,7 +398,7 @@ func (dc *dta_controller) DeleteProfile(prfId, orgId int64) error {
 // Flags:
 // includeDetails: - whether description will include faces and profiles (true), or not (false)
 // includeFields: - whether to include profiles meta data (true), or not (false).
-func (dc *dta_controller) DescribePerson(pId string, orgId int64, includeDetails, includeMeta bool) (*PersonDesc, error) {
+func (dc *dta_controller) DescribePerson(aCtx auth.Context, pId string, includeDetails, includeMeta bool) (*PersonDesc, error) {
 	pp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, err
@@ -410,15 +410,12 @@ func (dc *dta_controller) DescribePerson(pId string, orgId int64, includeDetails
 	}
 	defer pp.Commit()
 
-	inOrg, err := pp.CheckPersonInOrg(pId, orgId)
+	person, err := pp.GetPersonById(pId)
 	if err != nil {
 		return nil, err
 	}
-	if !inOrg {
-		return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find person by id="+pId)
-	}
 
-	person, err := pp.GetPersonById(pId)
+	err = aCtx.AuthZCamAccess(person.CamId, auth.AUTHZ_LEVEL_OU)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +460,7 @@ func (dc *dta_controller) DescribePerson(pId string, orgId int64, includeDetails
 	return res, nil
 }
 
-func (dc *dta_controller) UpdatePerson(mp *model.Person, orgId int64) error {
+func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 	pp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return err
@@ -475,22 +472,14 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person, orgId int64) error {
 	}
 	defer pp.Commit()
 
-	inOrg, err := pp.CheckPersonInOrg(mp.Id, orgId)
-	if err != nil {
-		return err
-	}
-	if !inOrg {
-		return common.NewError(common.ERR_NOT_FOUND, "Could not find person by id="+mp.Id)
-	}
-
 	if mp.ProfileId > 0 {
-		inOrg, err := pp.CheckProfileInOrg(mp.ProfileId, orgId)
+		inOrg, err := pp.CheckProfileInOrgWithCam(mp.ProfileId, mp.CamId)
 		if err != nil {
 			return err
 		}
 		if !inOrg {
-			dc.logger.Warn("UpdatePerson(): the profile=", mp.ProfileId, ", seems to be not in the orgId=", orgId)
-			return errors.New("There is not profile with id=" + strconv.FormatInt(mp.ProfileId, 10))
+			dc.logger.Warn("UpdatePerson(): the profile=", mp.ProfileId, ", seems to be not in the same organization")
+			return common.NewError(common.ERR_NOT_FOUND, "There is not profile with id="+strconv.FormatInt(mp.ProfileId, 10))
 		}
 	}
 

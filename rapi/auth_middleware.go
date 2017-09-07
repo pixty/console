@@ -5,11 +5,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jrivets/gorivets"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
+	"github.com/pixty/console/model"
 	"github.com/pixty/console/service/auth"
 )
 
@@ -17,6 +20,9 @@ type (
 	auth_middleware struct {
 		authServ    auth.AuthService
 		sessService auth.SessionService
+		persister   model.Persister
+		lock        sync.Mutex
+		obj2orgId   gorivets.LRU
 		logger      log4g.Logger
 	}
 
@@ -33,10 +39,12 @@ const (
 	cSessHeaderName = "X-Pixty-Session"
 )
 
-func newAuthMW(authServ auth.AuthService, sessService auth.SessionService) *auth_middleware {
+func newAuthMW(authServ auth.AuthService, sessService auth.SessionService, persister model.Persister) *auth_middleware {
 	am := new(auth_middleware)
 	am.authServ = authServ
 	am.sessService = sessService
+	am.persister = persister
+	am.obj2orgId = gorivets.NewLRU(1000, nil)
 	am.logger = log4g.GetLogger("pixty.rest.AuthMW")
 	return am
 }
@@ -70,25 +78,6 @@ func (am *auth_middleware) newAuthContextBySession(c *gin.Context, sd auth.Sessi
 	c.Set(cPixtyCtxParam, ac)
 	return ac
 }
-
-// Returns function which tries to make basic authentication. Creates context if
-// successful
-//func (am *auth_middleware) basicAuthMiddleware(realm string) gin.HandlerFunc {
-//	if realm == "" {
-//		realm = "Authorization Required"
-//	}
-//	realm = "Basic realm=" + strconv.Quote(realm)
-//	return func(c *gin.Context) {
-//		if !am.basicAuth(c) && !am.sessionAuth(c) {
-//			c.Header("WWW-Authenticate", realm)
-//			c.AbortWithStatus(http.StatusUnauthorized)
-//			cookie := &http.Cookie{Name: cSessCookieName, Value: "", Expires: time.Now()}
-//			http.SetCookie(c.Writer, cookie)
-//			return
-//		}
-//		c.Next()
-//	}
-//}
 
 // Uses basic authentication and creates new context, if needed
 func (am *auth_middleware) basicAuth(c *gin.Context) {
@@ -126,24 +115,6 @@ func (am *auth_middleware) basicAuth(c *gin.Context) {
 		}
 
 		am.newAuthContext(c, user)
-		//		if ok {
-		//			oldSessId := am.getRequestSession(c)
-		//			if oldSessId != "" {
-		//				am.logger.Info("Re-issue session due to new basic authentication, the old session=", oldSessId, " will be deleted.")
-		//				am.sessService.DeleteSesion(oldSessId)
-		//			}
-
-		//			sd, err := am.sessService.NewSession(user)
-		//			if err != nil {
-		//				am.logger.Warn("Could not create new session for user=", user, ", err=", err)
-		//				return false
-		//			}
-
-		//			// remember login in the conxtext
-		//			c.Set(cPixtyLoginCtxParam, sd.User())
-		//			am.setCookieAndSessId(c, sd.Session())
-		//		}
-
 		return
 	}
 	am.logger.Warn("Got basic auth header=", basic, ", but it has ", usrPasswd, " after encoding(no colon in between)")
@@ -189,6 +160,36 @@ func (am *auth_middleware) getRequestSession(c *gin.Context) string {
 	return sessId
 }
 
+func (am *auth_middleware) getCamOrgIdFromCache(camId string) int64 {
+	am.lock.Lock()
+	defer am.lock.Unlock()
+	inf, ok := am.obj2orgId.Get(camId)
+	if ok {
+		return inf.(int64)
+	}
+	return -1
+}
+
+func (am *auth_middleware) getCamOrgId(camId string) (int64, error) {
+	res := am.getCamOrgIdFromCache(camId)
+	if res > 0 {
+		return res, nil
+	}
+	mpp, err := am.persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return -1, err
+	}
+	cam, err := mpp.GetCameraById(camId)
+	if err != nil {
+		return -1, err
+	}
+
+	am.lock.Lock()
+	defer am.lock.Unlock()
+	am.obj2orgId.Add(camId, cam.OrgId, 1)
+	return cam.OrgId, nil
+}
+
 //=============================== auth_ctx ===================================
 var cAuthnErr = common.NewError(common.ERR_AUTH_REQUIRED, "The call requires authentication")
 
@@ -205,6 +206,13 @@ func (ac *auth_ctx) IsSuperadmin() bool {
 	}
 	al, err := ac.am.authServ.AuthZ(ac.login, 0)
 	return err == nil && al == auth.AUTHZ_LEVEL_SA
+}
+
+func (ac *auth_ctx) AuthZSuperadmin() error {
+	if !ac.IsSuperadmin() {
+		return common.NewError(common.ERR_UNAUTHORIZED, "Only superadmins are authorized to make the call")
+	}
+	return nil
 }
 
 func (ac *auth_ctx) AuthZOrgAdmin(orgId int64) error {
@@ -245,8 +253,30 @@ func (ac *auth_ctx) AuthZHasOrgLevel(orgId int64, level auth.AZLevel) error {
 	if err != nil {
 		return err
 	}
-	if azl < level || azl < auth.AUTHZ_LEVEL_OA {
+	if azl < level {
 		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" requered to be "+level.String()+", but the user has "+azl.String()+" role for orgId="+strconv.FormatInt(orgId, 10))
+	}
+	return nil
+}
+
+func (ac *auth_ctx) AuthZCamAccess(camId string, lvl auth.AZLevel) error {
+	err := ac.AuthN()
+	if err != nil {
+		return err
+	}
+
+	orgId, err := ac.am.getCamOrgId(camId)
+	if err != nil {
+		return err
+	}
+
+	azl, err := ac.am.authServ.AuthZ(ac.login, orgId)
+	if err != nil {
+		return err
+	}
+
+	if azl < lvl {
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" is not authorized to get information from  "+camId)
 	}
 	return nil
 }
@@ -254,39 +284,3 @@ func (ac *auth_ctx) AuthZHasOrgLevel(orgId int64, level auth.AZLevel) error {
 func (ac *auth_ctx) UserLogin() string {
 	return ac.login
 }
-
-//func (am *auth_middleware) setCookieAndSessId(c *gin.Context, sessId string) {
-//	c.Header(cSessHeaderName, sessId)
-//	cookie := &http.Cookie{Name: cSessCookieName, Value: sessId, Expires: time.Now().Add(365 * 24 * time.Hour)}
-//	http.SetCookie(c.Writer, cookie)
-//}
-
-//func (am *auth_middleware) authenticatedUser(c *gin.Context) string {
-//	un, ok := c.Get(cPixtyLoginCtxParam)
-//	if !ok {
-//		return ""
-//	}
-//	return un.(string)
-//}
-
-//// Checks authenticated user from context(context) with provided login.
-//// returns true if the context user and login are same, or context user is superadmin
-//func (am *auth_middleware) isUserOrSuperadmin(c *gin.Context, login string) bool {
-//	user := am.authenticatedUser(c)
-//	return user != "" && (login == user || am.isSuperadmin(user))
-//}
-
-//// returns true if the context user is org admin, or context user is superadmin
-//func (am *auth_middleware) isOrgAdmin(c *gin.Context, orgId int64) bool {
-//	user := am.authenticatedUser(c)
-//	if user == "" {
-//		return false
-//	}
-//	al, err := am.authServ.AuthZ(user, orgId)
-//	return err == nil && al >= auth.AUTHZ_LEVEL_OA
-//}
-
-//func (am *auth_middleware) isSuperadmin(login string) bool {
-//	al, err := am.authServ.AuthZ(login, 0)
-//	return err == nil && al == auth.AUTHZ_LEVEL_SA
-//}

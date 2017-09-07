@@ -30,6 +30,7 @@ type api struct {
 	Config       *common.ConsoleConfig  `inject:""`
 	ImgService   common.ImageService    `inject:"imgService"`
 	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
+	Persister    model.Persister        `inject:"persister"`
 	MainCtx      context.Context        `inject:"mainCtx"`
 	Dc           service.DataController `inject:""`
 	SessService  auth.SessionService    `inject:""`
@@ -57,7 +58,7 @@ func (a *api) DiPostConstruct() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	a.authMW = newAuthMW(a.AuthService, a.SessService)
+	a.authMW = newAuthMW(a.AuthService, a.SessService, a.Persister)
 
 	a.ge = gin.New()
 	if a.Config.HttpDebugMode {
@@ -174,16 +175,13 @@ func (a *api) DiPostConstruct() {
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
-	a.ge.GET("/cameras", a.h_GET_cameras)
+	a.ge.GET("/orgs/:orgId/cameras", a.h_GET_orgs_orgId_cameras)
 
 	// Creates new camera
-	a.ge.POST("/cameras", a.h_POST_cameras)
+	a.ge.POST("/orgs/:orgId/cameras", a.h_POST_orgs_orgId_cameras)
 
 	// Gets information about a camera
 	a.ge.GET("/cameras/:camId", a.h_GET_cameras_camId)
-
-	// Checks whether the camera name is available
-	a.ge.GET("/cameras/:camId/name-available", a.h_GET_cameras_camId_nameAvailable)
 
 	// Generates new secret key for the camera. We don't keep the secret key, but its
 	// hash, so it is user responsibility to get the key from the response and keeps
@@ -262,6 +260,11 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 	camId := c.Param("camId")
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZCamAccess(camId, auth.AUTHZ_LEVEL_OU)) {
+		return
+	}
+
 	// Parse query
 	q := c.Request.URL.Query()
 	limit, err := parseInt64QueryParam("limit", q)
@@ -295,9 +298,15 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 }
 
 // Creates a new organization. List of fields will be ignored
-// POST /orgs - superadmin(sa)
+// POST /orgs
 func (a *api) h_POST_orgs(c *gin.Context) {
 	a.logger.Debug("POST /orgs")
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZSuperadmin()) {
+		return
+	}
+
 	var org Organization
 	if a.errorResponse(c, bindAppJson(c, &org)) {
 		return
@@ -325,6 +334,11 @@ func (a *api) h_GET_orgs_orgId(c *gin.Context) {
 		return
 	}
 
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OU)) {
+		return
+	}
+
 	org, fis, err := a.Dc.GetOrgAndFields(orgId)
 	if a.errorResponse(c, err) {
 		return
@@ -339,6 +353,11 @@ func (a *api) h_POST_orgs_orgId_fields(c *gin.Context) {
 	orgId, err := parseInt64Param(c, "orgId")
 	a.logger.Debug("POST /orgs/", orgId, "/fields")
 	if a.errorResponse(c, err) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
@@ -357,11 +376,16 @@ func (a *api) h_POST_orgs_orgId_fields(c *gin.Context) {
 }
 
 // Retrieves list of fields only
-// GET /orgs/:orgId/fields - owner (o), sa
+// GET /orgs/:orgId/fields
 func (a *api) h_GET_orgs_orgId_fields(c *gin.Context) {
 	orgId, err := parseInt64Param(c, "orgId")
 	a.logger.Debug("GET /orgs/", orgId, "/fields")
 	if a.errorResponse(c, err) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
 
@@ -383,6 +407,11 @@ func (a *api) h_PUT_orgs_orgId_fields_fldId(c *gin.Context) {
 	fldId, err := parseInt64Param(c, "fldId")
 	a.logger.Info("PUT /orgs/", orgId, "/fields/", fldId)
 	if a.errorResponse(c, err) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
@@ -412,6 +441,11 @@ func (a *api) h_DELETE_orgs_orgId_fields_fldId(c *gin.Context) {
 		return
 	}
 	a.logger.Info("DELETE /orgs/", orgId, "/fields/", fldId)
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
+		return
+	}
 
 	if a.errorResponse(c, a.Dc.DeleteFieldInfo(orgId, fldId)) {
 		return
@@ -568,12 +602,6 @@ func (a *api) h_POST_users_userId_password(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// Returns authorized organization id, or error if not authenticated for an org
-func getOrgId(c *gin.Context) (int64, error) {
-	//TODO fix me
-	return 1, nil
-}
-
 func wrapError(msg string, e error) error {
 	if e == nil {
 		return nil
@@ -584,10 +612,6 @@ func wrapError(msg string, e error) error {
 // POST /profiles - o, u, sa
 func (a *api) h_POST_profiles(c *gin.Context) {
 	a.logger.Info("POST /profiles")
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
 
 	var p Profile
 	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
@@ -598,7 +622,11 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 	if a.errorResponse(c, err) {
 		return
 	}
-	prf.OrgId = orgId
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(prf.OrgId, auth.AUTHZ_LEVEL_OU)) {
+		return
+	}
 
 	pid, err := a.Dc.InsertProfile(prf)
 	if a.errorResponse(c, err) {
@@ -620,20 +648,17 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 	}
 
 	a.logger.Info("GET /profiles/", prfId)
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
 
 	p, err := a.Dc.GetProfile(prfId)
 	if a.errorResponse(c, err) {
 		return
 	}
 
-	if p.OrgId != orgId {
-		a.errorResponse(c, common.NewError(common.ERR_NOT_FOUND, "No profile with id="+strconv.FormatInt(prfId, 10)))
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(p.OrgId, auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
+
 	c.JSON(http.StatusOK, a.profile2mprofile(p))
 }
 
@@ -645,10 +670,6 @@ func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
 		return
 	}
 	a.logger.Debug("PUT /profiles/", prfId)
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
 
 	var p Profile
 	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
@@ -659,7 +680,12 @@ func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
 	if a.errorResponse(c, err) {
 		return
 	}
-	prf.OrgId = orgId
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(prf.OrgId, auth.AUTHZ_LEVEL_OU)) {
+		return
+	}
+
 	prf.Id = prfId
 
 	err = a.Dc.UpdateProfile(prf)
@@ -676,12 +702,8 @@ func (a *api) h_DELETE_profiles_prfId(c *gin.Context) {
 		return
 	}
 	a.logger.Debug("DELETE /profiles/", prfId)
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
 
-	err = a.Dc.DeleteProfile(prfId, orgId)
+	err = a.Dc.DeleteProfile(a.getAuthContext(c), prfId)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -691,19 +713,15 @@ func (a *api) h_DELETE_profiles_prfId(c *gin.Context) {
 // GET /persons/:persId
 func (a *api) h_GET_persons_persId(c *gin.Context) {
 	persId := c.Param("persId")
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
 
 	// Parse query
 	q := c.Request.URL.Query()
 	includeDetails := parseBoolQueryParam("details", q, false)
 	includeMeta := parseBoolQueryParam("meta", q, false)
 
-	a.logger.Debug("GET /persons/", persId, "?details=", includeDetails, "&meta=", includeMeta, " [orgId=", orgId, "]")
+	a.logger.Debug("GET /persons/", persId, "?details=", includeDetails, "&meta=", includeMeta)
 
-	desc, err := a.Dc.DescribePerson(persId, orgId, includeDetails, includeMeta)
+	desc, err := a.Dc.DescribePerson(a.getAuthContext(c), persId, includeDetails, includeMeta)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -716,13 +734,14 @@ func (a *api) h_GET_persons_persId(c *gin.Context) {
 // PUT /persons/:persId
 func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	persId := c.Param("persId")
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
-		return
-	}
-	a.logger.Debug("PUT /persons/", persId, " [orgId=", orgId, "]")
+	a.logger.Debug("PUT /persons/", persId)
 	var p Person
 	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZCamAccess(ptr2string(p.CamId, ""), auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
 
@@ -731,16 +750,20 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	if a.errorResponse(c, err) {
 		return
 	}
-	if a.errorResponse(c, a.Dc.UpdatePerson(mp, orgId)) {
+	if a.errorResponse(c, a.Dc.UpdatePerson(mp)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-// GET /cameras
-func (a *api) h_GET_cameras(c *gin.Context) {
-	orgId, err := getOrgId(c)
+// GET /orgs/:orgId/cameras
+func (a *api) h_GET_orgs_orgId_cameras(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
 	if a.errorResponse(c, err) {
+		return
+	}
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
 
@@ -751,10 +774,14 @@ func (a *api) h_GET_cameras(c *gin.Context) {
 	c.JSON(http.StatusOK, a.mcams2cams(cams))
 }
 
-// POST /cameras
-func (a *api) h_POST_cameras(c *gin.Context) {
-	orgId, err := getOrgId(c)
+// POST /orgs/:orgId/cameras
+func (a *api) h_POST_orgs_orgId_cameras(c *gin.Context) {
+	orgId, err := parseInt64Param(c, "orgId")
 	if a.errorResponse(c, err) {
+		return
+	}
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZOrgAdmin(orgId)) {
 		return
 	}
 
@@ -762,7 +789,7 @@ func (a *api) h_POST_cameras(c *gin.Context) {
 	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &cam))) {
 		return
 	}
-	a.logger.Info("POST /cameras ", cam, " for orgId=", orgId)
+	a.logger.Info("POST /orgs/", orgId, "/cameras ", cam)
 
 	cam.OrgId = orgId
 	err = a.Dc.NewCamera(a.cam2mcam(&cam))
@@ -779,50 +806,34 @@ func (a *api) h_POST_cameras(c *gin.Context) {
 
 // GET /cameras/:camId
 func (a *api) h_GET_cameras_camId(c *gin.Context) {
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
+	camId := c.Param("camId")
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZCamAccess(camId, auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
-	camId := c.Param("camId")
 
 	mcam, err := a.Dc.GetCameraById(camId)
 	if a.errorResponse(c, err) {
-		return
-	}
-	if mcam.OrgId != orgId {
-		a.logger.Warn("Recuested info for camId=", camId, ", but from another orgId=", orgId)
-		c.JSON(http.StatusNotFound, "Camera camId="+camId+" not found.")
 		return
 	}
 	c.JSON(http.StatusOK, a.mcam2cam(mcam))
 }
 
-// GET /cameras/:camId/name-available
-func (a *api) h_GET_cameras_camId_nameAvailable(c *gin.Context) {
-	camId := c.Param("camId")
-
-	mcam, err := a.Dc.GetCameraById(camId)
-	if !common.CheckError(err, common.ERR_NOT_FOUND) && a.errorResponse(c, err) {
-		return
-	}
-	c.JSON(http.StatusOK, mcam == nil)
-}
-
 // POST /cameras/:camId/newkey
 func (a *api) h_POST_cameras_camId_newkey(c *gin.Context) {
-	orgId, err := getOrgId(c)
-	if a.errorResponse(c, err) {
+	camId := c.Param("camId")
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZCamAccess(camId, auth.AUTHZ_LEVEL_OA)) {
 		return
 	}
-	camId := c.Param("camId")
 
-	mc, sk, err := a.Dc.NewCameraKey(camId, orgId)
+	mc, sk, err := a.Dc.NewCameraKey(camId)
 	if a.errorResponse(c, err) {
 		return
 	}
 	cam := a.mcam2cam(mc)
 	cam.SecretKey = toPtrString(sk)
-	a.logger.Info("New secret key was requested and successfully generated for camId=", camId, ", orgId=", orgId)
+	a.logger.Info("New secret key was requested and successfully generated for camId=", camId)
 	c.JSON(http.StatusOK, cam)
 }
 

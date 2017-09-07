@@ -72,9 +72,24 @@ func TestV128Conv(t *testing.T) {
 
 func TestNewSecretKey(t *testing.T) {
 	log := log4g.GetLogger("sk")
-	for i := 0; i < 10; i++ {
-		nsc := NewSecretKey(8)
+	for i := 0; i < 100; i++ {
+		nsc := NewSecretKey(7)
 		log.Info(nsc, " and it's hash=", Hash(nsc))
+	}
+}
+
+func TestBytes2String(t *testing.T) {
+	log := log4g.GetLogger("bytesHash")
+	log.Info("ABCD result gives - ", bytes2String([]byte{0xAB, 0xCD}, "0123456789ABCDEF", 4))
+	log.Info("10238A result gives - ", bytes2String([]byte{0x10, 0x23, 0x8A}, "0123456789ABCDEF", 6))
+	log4g.Shutdown()
+}
+
+func TestNewSession(t *testing.T) {
+	log := log4g.GetLogger("sessId")
+	for i := 0; i < 10; i++ {
+		sessId := NewSession()
+		log.Info(sessId)
 	}
 }
 
