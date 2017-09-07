@@ -22,9 +22,19 @@ func TestFacePutGet(t *testing.T) {
 	mp := initMysqlPersister()
 
 	pp, _ := mp.GetPartitionTx("ttt")
+
+	c := new(Camera)
+	camId, _ := pp.InsertCamera(c)
+
+	p := new(Person)
+	p.Id = "test"
+	p.CamId = camId
+	pp.InsertPerson(p)
+
 	f := new(Face)
 	f.V128D = common.NewV128D()
 	f.V128D.FillRandom()
+	f.PersonId = p.Id
 	id, err := pp.InsertFace(f)
 	if err != nil {
 		t.Fatal("Fail when inserting face, err=", err)
@@ -50,6 +60,18 @@ func TestFacePutGet(t *testing.T) {
 func TestFacePutGetMany(t *testing.T) {
 	mp := initMysqlPersister()
 	pp, _ := mp.GetPartitionTx("ttt")
+
+	c := new(Camera)
+	camId, _ := pp.InsertCamera(c)
+
+	p := new(Person)
+	p.Id = "P1"
+	p.CamId = camId
+	pp.InsertPerson(p)
+	p.Id = "P2"
+	pp.InsertPerson(p)
+	p.Id = "P3"
+	pp.InsertPerson(p)
 
 	f1 := new(Face)
 	f1.PersonId = "P1"

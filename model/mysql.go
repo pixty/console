@@ -235,25 +235,25 @@ func (mtx *msql_tx) ExecScript(sqlScript string) error {
 }
 
 // ========================= msql_main_persister =============================
-func (mmp *msql_main_tx) FindCameraById(camId string) (*Camera, error) {
-	rows, err := mmp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
-	if err != nil {
-		mmp.logger.Warn("Could read camera by id=", camId, ", err=", err)
-		return nil, err
-	}
-	defer rows.Close()
+//func (mmp *msql_main_tx) FindCameraById(camId string) (*Camera, error) {
+//	rows, err := mmp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
+//	if err != nil {
+//		mmp.logger.Warn("Could read camera by id=", camId, ", err=", err)
+//		return nil, err
+//	}
+//	defer rows.Close()
 
-	if rows.Next() {
-		cam := new(Camera)
-		err := rows.Scan(&cam.OrgId, &cam.SecretKey)
-		cam.Id = camId
-		if err != nil {
-			mmp.logger.Warn("FindCameraById(): could not scan result err=", err)
-		}
-		return cam, nil
-	}
-	return nil, nil
-}
+//	if rows.Next() {
+//		cam := new(Camera)
+//		err := rows.Scan(&cam.OrgId, &cam.SecretKey)
+//		cam.Id = camId
+//		if err != nil {
+//			mmp.logger.Warn("FindCameraById(): could not scan result err=", err)
+//		}
+//		return cam, nil
+//	}
+//	return nil, nil
+//}
 
 func (mmp *msql_main_tx) InsertOrg(org *Organization) (int64, error) {
 	res, err := mmp.executor().Exec("INSERT INTO organization(name) VALUES (?)", org.Name)
@@ -398,18 +398,18 @@ func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
 
 // ========================= msql_part_persister =============================
 
-func (mpp *msql_part_tx) InsertCamera(cam *Camera) error {
-	_, err := mpp.executor().Exec("INSERT INTO camera(id, org_id, secret_key) VALUES (?,?,?)",
-		cam.Id, cam.OrgId, cam.SecretKey)
+func (mpp *msql_part_tx) InsertCamera(cam *Camera) (int64, error) {
+	res, err := mpp.executor().Exec("INSERT INTO camera(name, org_id, secret_key) VALUES (?,?,?)",
+		cam.Name, cam.OrgId, cam.SecretKey)
 	if err != nil {
 		mpp.logger.Warn("InsertCamera(): Could not insert new camera ", cam, ", got the err=", err)
-		return err
+		return -1, err
 	}
-	return nil
+	return res.LastInsertId()
 }
 
-func (mpp *msql_part_tx) GetCameraById(camId string) (*Camera, error) {
-	rows, err := mpp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
+func (mpp *msql_part_tx) GetCameraById(camId int64) (*Camera, error) {
+	rows, err := mpp.executor().Query("SELECT name, org_id, secret_key FROM camera WHERE id=?", camId)
 	if err != nil {
 		mpp.logger.Warn("GetCameraById(): Getting camera by id=", camId, ", got the err=", err)
 		return nil, err
@@ -417,16 +417,16 @@ func (mpp *msql_part_tx) GetCameraById(camId string) (*Camera, error) {
 	defer rows.Close()
 	if rows.Next() {
 		c := new(Camera)
-		rows.Scan(&c.OrgId, &c.SecretKey)
+		rows.Scan(&c.Name, &c.OrgId, &c.SecretKey)
 		c.Id = camId
 		return c, nil
 	}
-	return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find camera with id="+camId)
+	return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find camera with id="+strconv.FormatInt(camId, 10))
 }
 
 func (mpp *msql_part_tx) UpdateCamera(cam *Camera) error {
-	_, err := mpp.executor().Exec("UPDATE camera SET secret_key=? WHERE id=?",
-		cam.SecretKey, cam.Id)
+	_, err := mpp.executor().Exec("UPDATE camera SET secret_key=?, name=? WHERE id=?",
+		cam.SecretKey, cam.Name, cam.Id)
 	if err != nil {
 		mpp.logger.Warn("UpdateCamera(): Could not update camera ", cam, ", got the err=", err)
 		return err
@@ -434,7 +434,7 @@ func (mpp *msql_part_tx) UpdateCamera(cam *Camera) error {
 	return nil
 }
 
-func (mpp *msql_part_tx) DeleteCamera(camId string) error {
+func (mpp *msql_part_tx) DeleteCamera(camId int64) error {
 	_, err := mpp.executor().Exec("DELETE camera WHERE id=?", camId)
 	if err != nil {
 		mpp.logger.Warn("DeleteCamera(): Could not delete camera with id=", camId, ", got the err=", err)
@@ -444,7 +444,7 @@ func (mpp *msql_part_tx) DeleteCamera(camId string) error {
 }
 
 func (mpp *msql_part_tx) FindCameras(q *CameraQuery) ([]*Camera, error) {
-	rows, err := mpp.executor().Query("SELECT id, org_id, secret_key FROM camera WHERE org_id=?", q.OrgId)
+	rows, err := mpp.executor().Query("SELECT id, name, org_id, secret_key FROM camera WHERE org_id=?", q.OrgId)
 	if err != nil {
 		mpp.logger.Warn("FindCameras(): Getting cameras by query=", q, ", got the err=", err)
 		return nil, err
@@ -453,7 +453,7 @@ func (mpp *msql_part_tx) FindCameras(q *CameraQuery) ([]*Camera, error) {
 	res := []*Camera{}
 	for rows.Next() {
 		c := new(Camera)
-		rows.Scan(&c.Id, &c.OrgId, &c.SecretKey)
+		rows.Scan(&c.Id, &c.Name, &c.OrgId, &c.SecretKey)
 		res = append(res, c)
 	}
 	return res, nil
@@ -616,7 +616,7 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 	whereCond := []string{}
 	whereParams := []interface{}{}
 
-	if pQuery.CamId != "" {
+	if pQuery.CamId != 0 {
 		whereCond = append(whereCond, "cam_id=?")
 		whereParams = append(whereParams, pQuery.CamId)
 	}
@@ -900,7 +900,7 @@ func (mpp *msql_part_tx) GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
 	return res, nil
 }
 
-func (mpp *msql_part_tx) CheckProfileInOrgWithCam(prId int64, camId string) (bool, error) {
+func (mpp *msql_part_tx) CheckProfileInOrgWithCam(prId, camId int64) (bool, error) {
 	rows, err := mpp.executor().Query("SELECT p.id FROM profile AS p WHERE p.id=? AND p.org_id= (SELECT org_id FROM camera WHERE id=?)", prId, camId)
 	if err != nil {
 		mpp.logger.Warn("CheckProfileInOrgWithCam(): err=", err)

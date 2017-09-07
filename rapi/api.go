@@ -257,7 +257,10 @@ func (a *api) h_DELETE_sessions_sessId(c *gin.Context) {
 // to the last frame for the requested camera
 // GET /cameras/:camId/timeline?limit=20&maxTime=12341234
 func (a *api) h_GET_cameras_timeline(c *gin.Context) {
-	camId := c.Param("camId")
+	camId, err := parseInt64Param(c, "camId")
+	if a.errorResponse(c, err) {
+		return
+	}
 	a.logger.Debug("GET /cameras/", camId, "/timeline")
 
 	aCtx := a.getAuthContext(c)
@@ -339,12 +342,12 @@ func (a *api) h_GET_orgs_orgId(c *gin.Context) {
 		return
 	}
 
-	org, fis, err := a.Dc.GetOrgAndFields(orgId)
+	orgDesc, err := a.Dc.GetOrgDesc(orgId)
 	if a.errorResponse(c, err) {
 		return
 	}
 
-	c.JSON(http.StatusOK, a.morg2org(org, fis))
+	c.JSON(http.StatusOK, a.morg2org(orgDesc.Org, orgDesc.Fields, orgDesc.Cams))
 }
 
 // Create new field. the number of fields is limited
@@ -741,7 +744,7 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	}
 
 	aCtx := a.getAuthContext(c)
-	if a.errorResponse(c, aCtx.AuthZCamAccess(ptr2string(p.CamId, ""), auth.AUTHZ_LEVEL_OU)) {
+	if a.errorResponse(c, aCtx.AuthZCamAccess(ptr2int64(p.CamId, 0), auth.AUTHZ_LEVEL_OU)) {
 		return
 	}
 
@@ -792,13 +795,13 @@ func (a *api) h_POST_orgs_orgId_cameras(c *gin.Context) {
 	a.logger.Info("POST /orgs/", orgId, "/cameras ", cam)
 
 	cam.OrgId = orgId
-	err = a.Dc.NewCamera(a.cam2mcam(&cam))
+	camId, err := a.Dc.NewCamera(a.cam2mcam(&cam))
 	if a.errorResponse(c, err) {
 		return
 	}
 
 	w := c.Writer
-	uri := composeURI(c.Request, cam.Id)
+	uri := composeURI(c.Request, strconv.FormatInt(camId, 10))
 	a.logger.Debug("New camera ", uri, " has been just created")
 	w.Header().Set("Location", uri)
 	c.Status(http.StatusCreated)
@@ -806,7 +809,11 @@ func (a *api) h_POST_orgs_orgId_cameras(c *gin.Context) {
 
 // GET /cameras/:camId
 func (a *api) h_GET_cameras_camId(c *gin.Context) {
-	camId := c.Param("camId")
+	camId, err := parseInt64Param(c, "camId")
+	if a.errorResponse(c, err) {
+		return
+	}
+
 	aCtx := a.getAuthContext(c)
 	if a.errorResponse(c, aCtx.AuthZCamAccess(camId, auth.AUTHZ_LEVEL_OU)) {
 		return
@@ -821,7 +828,11 @@ func (a *api) h_GET_cameras_camId(c *gin.Context) {
 
 // POST /cameras/:camId/newkey
 func (a *api) h_POST_cameras_camId_newkey(c *gin.Context) {
-	camId := c.Param("camId")
+	camId, err := parseInt64Param(c, "camId")
+	if a.errorResponse(c, err) {
+		return
+	}
+
 	aCtx := a.getAuthContext(c)
 	if a.errorResponse(c, aCtx.AuthZCamAccess(camId, auth.AUTHZ_LEVEL_OA)) {
 		return
@@ -1102,6 +1113,7 @@ func (a *api) mcams2cams(mcams []*model.Camera) []*Camera {
 func (a *api) mcam2cam(mcam *model.Camera) *Camera {
 	cam := new(Camera)
 	cam.Id = mcam.Id
+	cam.DisplayName = mcam.Name
 	cam.OrgId = mcam.OrgId
 	cam.HasSecretKey = mcam.SecretKey != ""
 	return cam
@@ -1110,6 +1122,7 @@ func (a *api) mcam2cam(mcam *model.Camera) *Camera {
 func (a *api) cam2mcam(cam *Camera) *model.Camera {
 	mcam := new(model.Camera)
 	mcam.Id = cam.Id
+	mcam.Name = cam.DisplayName
 	mcam.OrgId = cam.OrgId
 	return mcam
 }
@@ -1268,11 +1281,12 @@ func (a *api) org2morg(org *Organization) *model.Organization {
 	return mo
 }
 
-func (a *api) morg2org(mo *model.Organization, fis []*model.FieldInfo) *Organization {
+func (a *api) morg2org(mo *model.Organization, fis []*model.FieldInfo, cams []*model.Camera) *Organization {
 	org := new(Organization)
 	org.Id = mo.Id
 	org.Name = mo.Name
 	org.Meta = a.fieldInfos2MetaInfos(fis)
+	org.Cameras = a.mcams2cams(cams)
 	return org
 }
 

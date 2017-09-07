@@ -12,7 +12,7 @@ type (
 		AuthZUser(userLogin string) error
 
 		// user is authorized to access the camera
-		AuthZCamAccess(camId string, lvl AZLevel) error
+		AuthZCamAccess(camId int64, lvl AZLevel) error
 
 		// returns authenticated user login or "" if not authenticated
 		UserLogin() string

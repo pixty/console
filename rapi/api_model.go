@@ -12,6 +12,9 @@ type (
 		Id   int64          `json:"id"`
 		Name string         `json:"name"`
 		Meta OrgMetaInfoArr `json:"metaInfo"`
+
+		// optional
+		Cameras []*Camera `json:"cameras,omitempty"`
 	}
 
 	OrgMetaInfoArr []*OrgMetaInfo
@@ -37,7 +40,8 @@ type (
 	}
 
 	Camera struct {
-		Id           string  `json:"id"`
+		Id           int64   `json:"id"`
+		DisplayName  string  `json:"name"`
 		OrgId        int64   `json:"orgId"`
 		HasSecretKey bool    `json:"hasSecretKey"`
 		SecretKey    *string `json:"secretKey,omitempty"`
@@ -60,7 +64,7 @@ type (
 
 	Person struct {
 		Id         string             `json:"id"`
-		CamId      *string            `json:"camId,omitempty"`
+		CamId      *int64             `json:"camId,omitempty"`
 		LastSeenAt common.ISO8601Time `json:"lastSeenAt"`
 		AvatarUrl  string             `json:"avatarUrl"`
 		ProfileId  *int64             `json:"profileId,omitempty"`
@@ -74,7 +78,7 @@ type (
 
 	PictureInfo struct {
 		Id        string              `json:"id"`
-		CamId     *string             `json:"camId,omitempty"`
+		CamId     *int64              `json:"camId,omitempty"`
 		Timestamp *common.ISO8601Time `json:"timestamp,omitempty"`
 		Size      *model.Size         `json:"size,omitempty"`
 

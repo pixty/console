@@ -17,12 +17,12 @@ func ImgMakeFileName(imgId string, rect *image.Rectangle) string {
 	return ImgMakeId(imgId, rect) + ".png"
 }
 
-func ImgMakeCamId(camId string, ts Timestamp) string {
-	return IMG_CAM_PREFIX + camId + strconv.FormatUint(uint64(ts), 10)
+func ImgMakeCamId(camId int64, ts Timestamp) string {
+	return IMG_CAM_PREFIX + strconv.FormatInt(camId, 10) + "-" + strconv.FormatUint(uint64(ts), 10)
 }
 
-func ImgMakeTmpCamId(camId string, ts Timestamp) string {
-	return IMG_TMP_CAM_PREFIX + string(camId) + strconv.FormatUint(uint64(ts), 10)
+func ImgMakeTmpCamId(camId int64, ts Timestamp) string {
+	return IMG_TMP_CAM_PREFIX + strconv.FormatInt(camId, 10) + "-" + strconv.FormatUint(uint64(ts), 10)
 }
 
 func ImgIsTmpCamId(imgId string) bool {

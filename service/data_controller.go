@@ -15,7 +15,7 @@ type (
 	DataController interface {
 		// Orgs and fields
 		InsertOrg(org *model.Organization) (int64, error)
-		GetOrgAndFields(orgId int64) (*model.Organization, []*model.FieldInfo, error)
+		GetOrgDesc(orgId int64) (*OrgDesc, error)
 		InsertNewFields(orgId int64, fis []*model.FieldInfo) error
 		GetFieldInfos(orgId int64) ([]*model.FieldInfo, error)
 		UpdateFieldInfo(fi *model.FieldInfo) error
@@ -36,10 +36,10 @@ type (
 		GetUserRoles(login string, orgId int64) ([]*model.UserRole, error)
 
 		//Cameras
-		GetCameraById(camId string) (*model.Camera, error)
+		GetCameraById(camId int64) (*model.Camera, error)
 		GetAllCameras(orgId int64) ([]*model.Camera, error)
-		NewCamera(mcam *model.Camera) error
-		NewCameraKey(camId string) (*model.Camera, string, error)
+		NewCamera(mcam *model.Camera) (int64, error)
+		NewCameraKey(camId int64) (*model.Camera, string, error)
 
 		// Profiles
 		InsertProfile(prf *model.Profile) (int64, error)
@@ -50,6 +50,12 @@ type (
 		// Persons
 		DescribePerson(aCtx auth.Context, pId string, includeDetails, includeMeta bool) (*PersonDesc, error)
 		UpdatePerson(mp *model.Person) error
+	}
+
+	OrgDesc struct {
+		Org    *model.Organization
+		Fields []*model.FieldInfo
+		Cams   []*model.Camera
 	}
 
 	PersonDesc struct {
@@ -80,13 +86,6 @@ func NewDataController() DataController {
 	return dc
 }
 
-func isCamIdValid(camId string) error {
-	if !camIdRegexp.MatchString(camId) {
-		return common.NewError(common.ERR_INVALID_VAL, "Invalid cameraId="+camId+", expected string up to 40 chars length.")
-	}
-	return nil
-}
-
 func checkLogin(login string) error {
 	if !loginRegexp.MatchString(login) {
 		return common.NewError(common.ERR_INVALID_VAL, "Invalid login="+login+", expected string up to 40 chars long.")
@@ -102,22 +101,34 @@ func (dc *dta_controller) InsertOrg(org *model.Organization) (int64, error) {
 	return mmp.InsertOrg(org)
 }
 
-func (dc *dta_controller) GetOrgAndFields(orgId int64) (*model.Organization, []*model.FieldInfo, error) {
+func (dc *dta_controller) GetOrgDesc(orgId int64) (*OrgDesc, error) {
 	mmp, err := dc.Persister.GetMainTx()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	org, err := mmp.GetOrg(orgId)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	mpp.Begin()
+	defer mpp.Commit()
+
 	fis, err := mpp.GetFieldInfos(orgId)
-	return org, fis, err
+	if err != nil {
+		return nil, err
+	}
+
+	cams, err := mpp.FindCameras(&model.CameraQuery{OrgId: orgId})
+	if err != nil {
+		return nil, err
+	}
+
+	return &OrgDesc{Org: org, Fields: fis, Cams: cams}, nil
 }
 
 func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) error {
@@ -202,12 +213,7 @@ func (dc *dta_controller) DeleteFieldInfo(orgId, fldId int64) error {
 }
 
 //Cameras
-func (dc *dta_controller) GetCameraById(camId string) (*model.Camera, error) {
-	err := isCamIdValid(camId)
-	if err != nil {
-		return nil, err
-	}
-
+func (dc *dta_controller) GetCameraById(camId int64) (*model.Camera, error) {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, err
@@ -225,22 +231,17 @@ func (dc *dta_controller) GetAllCameras(orgId int64) ([]*model.Camera, error) {
 	return mpp.FindCameras(&model.CameraQuery{OrgId: orgId})
 }
 
-func (dc *dta_controller) NewCamera(cam *model.Camera) error {
-	err := isCamIdValid(cam.Id)
-	if err != nil {
-		return err
-	}
-
+func (dc *dta_controller) NewCamera(cam *model.Camera) (int64, error) {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
-		return err
+		return -1, err
 	}
 
 	return mpp.InsertCamera(cam)
 
 }
 
-func (dc *dta_controller) NewCameraKey(camId string) (*model.Camera, string, error) {
+func (dc *dta_controller) NewCameraKey(camId int64) (*model.Camera, string, error) {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, "", err

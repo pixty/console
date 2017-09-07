@@ -160,7 +160,7 @@ func (am *auth_middleware) getRequestSession(c *gin.Context) string {
 	return sessId
 }
 
-func (am *auth_middleware) getCamOrgIdFromCache(camId string) int64 {
+func (am *auth_middleware) getCamOrgIdFromCache(camId int64) int64 {
 	am.lock.Lock()
 	defer am.lock.Unlock()
 	inf, ok := am.obj2orgId.Get(camId)
@@ -170,7 +170,7 @@ func (am *auth_middleware) getCamOrgIdFromCache(camId string) int64 {
 	return -1
 }
 
-func (am *auth_middleware) getCamOrgId(camId string) (int64, error) {
+func (am *auth_middleware) getCamOrgId(camId int64) (int64, error) {
 	res := am.getCamOrgIdFromCache(camId)
 	if res > 0 {
 		return res, nil
@@ -259,7 +259,7 @@ func (ac *auth_ctx) AuthZHasOrgLevel(orgId int64, level auth.AZLevel) error {
 	return nil
 }
 
-func (ac *auth_ctx) AuthZCamAccess(camId string, lvl auth.AZLevel) error {
+func (ac *auth_ctx) AuthZCamAccess(camId int64, lvl auth.AZLevel) error {
 	err := ac.AuthN()
 	if err != nil {
 		return err
@@ -276,7 +276,7 @@ func (ac *auth_ctx) AuthZCamAccess(camId string, lvl auth.AZLevel) error {
 	}
 
 	if azl < lvl {
-		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" is not authorized to get information from  "+camId)
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" is not authorized to get information from  "+strconv.FormatInt(camId, 10))
 	}
 	return nil
 }

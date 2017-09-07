@@ -31,7 +31,7 @@ type (
 	}
 
 	SceneTimeline struct {
-		CamId       string
+		CamId       int64
 		LatestPicId string
 		Persons     []*model.Person
 		// Map of personId -> []faces
@@ -95,7 +95,7 @@ func (sp *SceneProcessor) DiShutdown() {
 // ------------------------------- Public ------------------------------------
 // Handles scene object which is sent by FP. Returns error only in case of the
 // packet is not properly formed.
-func (sp *SceneProcessor) OnFPCPScene(camId string, scene *fpcp.Scene) error {
+func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 	sp.logger.Debug("Got new scene from camId=", camId, " with ", scene.Persons, " persons on the scene")
 
 	if scene.Faces != nil && len(scene.Faces) > 0 {
@@ -135,7 +135,7 @@ func (sp *SceneProcessor) OnFPCPScene(camId string, scene *fpcp.Scene) error {
 }
 
 // Returns scene timeline object
-func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, limit int) (*SceneTimeline, error) {
+func (sp *SceneProcessor) GetTimelineView(camId int64, maxTs common.Timestamp, limit int) (*SceneTimeline, error) {
 	pp, err := sp.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, err
@@ -221,7 +221,7 @@ func (sp *SceneProcessor) GetTimelineView(camId string, maxTs common.Timestamp, 
 }
 
 // ------------------------------ Private ------------------------------------
-func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) error {
+func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) error {
 	sp.logger.Debug("Updating ", len(faces), " faces into DB")
 	pp, err := sp.Persister.GetPartitionTx("FAKE")
 	if err != nil {
@@ -292,7 +292,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId string, faces []*model.Face) e
 // - ImageId
 // - FaceImageId
 // for the faces array provided
-func (sp *SceneProcessor) saveFaceImages(camId string, frame *fpcp.Frame, faces []*model.Face) error {
+func (sp *SceneProcessor) saveFaceImages(camId int64, frame *fpcp.Frame, faces []*model.Face) error {
 	if frame.Data == nil || len(frame.Data) == 0 {
 		sp.logger.Warn("saveFaceImages(): No frame data for camId=", camId)
 		return errors.New("Expecting image in the frame, but not found it.")
@@ -351,7 +351,7 @@ func (sp *SceneProcessor) saveFaceImages(camId string, frame *fpcp.Frame, faces 
 	return nil
 }
 
-func (sp *SceneProcessor) saveFrameImage(imgId string, camId string, frame *fpcp.Frame) error {
+func (sp *SceneProcessor) saveFrameImage(imgId string, camId int64, frame *fpcp.Frame) error {
 	idesc := &common.ImageDescriptor{
 		Id:        common.Id(imgId),
 		Reader:    bytes.NewReader(frame.Data),
@@ -387,14 +387,14 @@ func (sp *SceneProcessor) toFace(face *fpcp.Face) (*model.Face, error) {
 	return f, nil
 }
 
-func (cpc *cam_pictures_cache) set_cam_image(camId string, imgId string) {
+func (cpc *cam_pictures_cache) set_cam_image(camId int64, imgId string) {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
 	cpc.camPics.Add(camId, imgId, 1)
 }
 
-func (cpc *cam_pictures_cache) get_cam_image(camId string) string {
+func (cpc *cam_pictures_cache) get_cam_image(camId int64) string {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 

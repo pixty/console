@@ -37,7 +37,7 @@ type (
 		ScnService *scene.SceneProcessor `inject:"scnProcessor"`
 		log        gorivets.Logger
 		sessions   gorivets.LRU
-		ak2sess    map[string]string // access keys to sess
+		camId2sess map[int64]string // access keys to sess
 		listener   net.Listener
 		started    bool
 		lock       sync.Mutex
@@ -70,7 +70,7 @@ func (fs *FPCPServer) DiInit() error {
 	}
 
 	fs.sessions = gorivets.NewLRU(int64(fs.Config.GrpcFPCPSessCapacity), fs.onDropSession)
-	fs.ak2sess = make(map[string]string)
+	fs.camId2sess = make(map[int64]string)
 	fs.listener = lis
 	fs.run()
 	return nil
@@ -110,41 +110,42 @@ func (fs *FPCPServer) close() {
 	fs.listener.Close()
 }
 
-func (fs *FPCPServer) onDropSession(sid, ak interface{}) {
-	fs.log.Info("Dropping session_id=", sid, " for access_key=", ak)
+func (fs *FPCPServer) onDropSession(sid, ci interface{}) {
+	fs.log.Info("Dropping session_id=", sid, " for camId=", ci)
 	go func() {
 		fs.lock.Lock()
 		defer fs.lock.Unlock()
-		access_key := ak.(string)
-		sess, ok := fs.ak2sess[access_key]
+		camId := ci.(int64)
+		sess, ok := fs.camId2sess[camId]
 		if ok && sess == sid.(string) {
-			delete(fs.ak2sess, access_key)
+			delete(fs.camId2sess, camId)
 		}
 	}()
 }
 
-func (fs *FPCPServer) checkSession(ctx context.Context) string {
+func (fs *FPCPServer) checkSession(ctx context.Context) int64 {
 	md, ok := metadata.FromContext(ctx)
 	if ok {
 		sess := getFirstValue(md, mtKeySessionId)
-		ak, ok := fs.sessions.Get(sess)
+		ci, ok := fs.sessions.Get(sess)
 		if ok {
-			fs.log.Debug("Session check is ok for session_id=", sess, ", access_key=", ak)
-			return ak.(string)
+			fs.log.Debug("Session check is ok for session_id=", sess, ", access_key=", ci)
+			return ci.(int64)
 		}
 		fs.log.Warn("Unknown connection for session_id=", sess)
 	} else {
 		fs.log.Warn("Got a gRPC call expecting session id, but it is not provided")
 	}
-	return ""
+	return -1
 }
 
-func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
-	mtx, err := fs.Persister.GetMainTx()
+func (fs *FPCPServer) authenticate(camId int64, authToken *fpcp.AuthToken) (string, error) {
+	mpp, err := fs.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return "", err
 	}
-	cam, err := mtx.FindCameraById(authToken.Access)
+
+	cam, err := mpp.GetCameraById(camId)
 	if err != nil {
 		return "", err
 	}
@@ -156,15 +157,15 @@ func (fs *FPCPServer) authenticate(authToken *fpcp.AuthToken) (string, error) {
 
 	fs.lock.Lock()
 	defer fs.lock.Unlock()
-	sid := common.NewUUID()
-	oldSess, ok := fs.ak2sess[authToken.Access]
+	sid := common.NewSession()
+	oldSess, ok := fs.camId2sess[camId]
 	if ok {
-		delete(fs.ak2sess, authToken.Access)
+		delete(fs.camId2sess, camId)
 		fs.sessions.Delete(oldSess)
 		fs.log.Info("When authentication by access_key=", authToken.Access, ", found old session by the key sess=", oldSess)
 	}
-	fs.sessions.Add(sid, authToken.Access, 1)
-	fs.ak2sess[authToken.Access] = sid
+	fs.sessions.Add(sid, camId, 1)
+	fs.camId2sess[camId] = sid
 	return sid, nil
 }
 
@@ -174,6 +175,15 @@ func setError(ctx context.Context, err string) {
 }
 
 // -------------------------------- FPCP -------------------------------------
+// We expect that access_key is camId, which is int64
+func ak2camId(access_key string) int64 {
+	camId, err := strconv.ParseInt(access_key, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return camId
+}
+
 func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *fpcp.AuthToken) (*fpcp.Void, error) {
 	fs.log.Info("Got authentication request for access_key=", authToken.Access)
 	if len(authToken.Access) == 0 || len(authToken.Secret) == 0 {
@@ -182,7 +192,14 @@ func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *fpcp.AuthToke
 		return &fpcp.Void{}, nil
 	}
 
-	sid, err := fs.authenticate(authToken)
+	camId := ak2camId(authToken.Access)
+	if camId < 0 {
+		fs.log.Warn("Frame Proc uses not int value for the access_key=", authToken.Access, ", expecting camId which is int")
+		setError(ctx, mtErrVal_AuthFailed)
+		return &fpcp.Void{}, nil
+	}
+
+	sid, err := fs.authenticate(camId, authToken)
 	if err != nil {
 		fs.log.Warn("Unable authenticate. err=", err)
 		setError(ctx, mtErrVal_UnableNow)
@@ -204,7 +221,7 @@ func (fs *FPCPServer) Authenticate(ctx context.Context, authToken *fpcp.AuthToke
 
 func (fs *FPCPServer) OnScene(ctx context.Context, scn *fpcp.Scene) (*fpcp.Void, error) {
 	camId := fs.checkSession(ctx)
-	if camId == "" {
+	if camId < 0 {
 		fs.log.Warn("Unauthorized call to OnScene()")
 		setError(ctx, mtErrVal_UnknonwSess)
 		return &fpcp.Void{}, nil
