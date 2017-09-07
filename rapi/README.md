@@ -6,6 +6,12 @@ Copied from api.go:
 	// The ping returns pong and URI of the ping, how we see it.
 	a.ge.GET("/ping", a.h_GET_ping)
 
+	// Create new secured session JSON {"login": "user", "password": "abc"} is exepected
+	a.ge.POST("/sessions", a.h_POST_sessions)
+
+	// Delete session by its sessionId
+	a.ge.DELETE("/sessions/:sessId", a.h_DELETE_sessions_sessId)
+
 	// Returns a composite object which contains list of persons(different faces) seen
 	// from a time (or last seen) sorted in descending order. Every object in the list
 	// is a Person JSON, which has references to list of faces of the person,
@@ -17,11 +23,11 @@ Copied from api.go:
 	// - maxTime: the maximum time where the first person in the list last seen(all
 	// 	other persons will have same or less time) - used for paging
 	//
-	// Example: curl https://api.pixty.io/cameras/:camId/timeline?limit=20&maxTime=12341234
+	// Example: curl https://api.pixty.io/cameras/12/timeline?limit=20&maxTime=12341234
 	a.ge.GET("/cameras/:camId/timeline", a.h_GET_cameras_timeline)
 
 	// Get an known image by its file name
-	// Example: curl https://api.pixty.io/images/cm-ptt1504241500992.png
+	// Example: curl https://api.pixty.io/images/cm-1-504241500992.png
 	a.ge.GET("/images/:imgName", a.h_GET_images_png_download)
 
 	// Create new org - will be used by superadmin only
@@ -71,7 +77,7 @@ Copied from api.go:
 
 	// Creates a new profile. The call allows to provide some list of field values
 	//
-	// Example: curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-ptt1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
+	// Example: curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-1-1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
 	a.ge.POST("/profiles", a.h_POST_profiles)
 
 	// Gets profile by its id. Only not empty fields will be returned(!)
@@ -98,35 +104,32 @@ Copied from api.go:
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
-	a.ge.GET("/cameras", a.h_GET_cameras)
+	a.ge.GET("/orgs/:orgId/cameras", a.h_GET_orgs_orgId_cameras)
 
 	// Creates new camera
-	a.ge.POST("/cameras", a.h_POST_cameras)
+	a.ge.POST("/orgs/:orgId/cameras", a.h_POST_orgs_orgId_cameras)
 
 	// Gets information about a camera
 	a.ge.GET("/cameras/:camId", a.h_GET_cameras_camId)
-
-	// Checks whether the camera name is available
-	a.ge.GET("/cameras/:camId/name-available", a.h_GET_cameras_camId_nameAvailable)
 
 	// Generates new secret key for the camera. We don't keep the secret key, but its
 	// hash, so it is user responsibility to get the key from the response and keeps
 	// it safely. If they lost, they have to regenerate.
 	a.ge.POST("/cameras/:camId/newkey", a.h_POST_cameras_camId_newkey)
-	
 ```
 
 # How to authenticate
-Provide Basic authentication if the user will be authenticated successfully the response will contain:
-X-Pixty-Session header with the session id, and sets the cookie session.
+You can use basic authentication to use any particular call, but please use it for curl and testing
+puroses only (all curl examples with basic). For App please use sessions
 
-Further calls MUST use whether the X-Pixty-Session header or the cookie. You should not try to 
-use basic auth again, because it will produce new session. The number of the sessions are limited, so 
-if you hit the range you cannot be logged in unless some sessions are time-outed. 
+Calls can be authenticated by session number which comes with cookie or in X-Pixty-Session header
+to make a new session please do POST to /sessions with JSON {"login": "super", "password": "jopa"}
+if sessions is created the session ID is returned in response, header and cookie will be set. please
+use it for further calls be authorized 
 
 # Examples
 // Create a new user
-curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "super"}' http://localhost:8080/users
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "super"}' http://api.pixty.io/users
 
 // Set new password
 curl -v -H "Content-Type: application/json" -u super:oldpasswd -XPOST -d '{"password":"newpassword"}' http://localhost:8080/users/super/password
@@ -134,26 +137,29 @@ curl -v -H "Content-Type: application/json" -u super:oldpasswd -XPOST -d '{"pass
 // User asks about his own roles (or superadmin does)
 curl -v -H "Content-Type: application/json" -u super:superpass http://localhost:8080/users/super/userRoles
 
-// Get list of orgs
-curl -v -H "Content-Type: application/json" -X POST -d '{"name": "pixty"}' http://api.pixty.io/orgs
+// Create new organization
+curl -v -H "Content-Type: application/json" -X POST -d '{"name": "pixty"}' -u super:asdf https://api.pixty.io/orgs
 
 // Get an org by id (1)
-curl http://api.pixty.io/orgs/1
+curl -v -u pixtyAdmin:123 http://api.pixty.io/orgs/1
+
+// assign userrole
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "pixtyadmin", "orgId": 1, "role":"orgadmin"}' -u super:123 http://localhost:8080/orgs/1/userRoles
 
 // Create new fields (2 here )
 curl -v -H "Content-Type: application/json" -X POST -d '[{"fieldName": "First Name", "fieldType": "text"}, { "fieldName": "Last Name", "fieldType": "text"}]' http://api.pixty.io/orgs/1/fields
 
 // get list of fields
-curl http://api.pixty.io/orgs/1/fields
+curl -u pixtyadmin:ljkjlj  http://api.pixty.io/orgs/1/fields
 
 // create new camera
-curl -H "Content-Type: application/json" -XPOST -d '{"id": "ptt"}'  http://api.pixty.io/cameras
+curl -v -u pixtyAdmin:123 -H "Content-Type: application/json" -XPOST -d '{"name": "Pixty Test Camera"}'  http://localhost:8080/orgs/1/cameras
 
 // get list of cameras (for orgId=1 so far...)
 curl http://api.pixty.io/cameras
 
 // generate new secret key - will be sent once
-curl -v -XPOST 'http://api.pixty.io/cameras/ptt/newkey'
+curl -v -XPOST 'http://api.pixty.io/cameras/1/newkey'
 
 // Create new profile and assign fields
 curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-ptt1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles

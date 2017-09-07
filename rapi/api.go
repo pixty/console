@@ -94,11 +94,11 @@ func (a *api) DiPostConstruct() {
 	// - maxTime: the maximum time where the first person in the list last seen(all
 	// 	other persons will have same or less time) - used for paging
 	//
-	// Example: curl https://api.pixty.io/cameras/:camId/timeline?limit=20&maxTime=12341234
+	// Example: curl https://api.pixty.io/cameras/12/timeline?limit=20&maxTime=12341234
 	a.ge.GET("/cameras/:camId/timeline", a.h_GET_cameras_timeline)
 
 	// Get an known image by its file name
-	// Example: curl https://api.pixty.io/images/cm-ptt1504241500992.png
+	// Example: curl https://api.pixty.io/images/cm-1-504241500992.png
 	a.ge.GET("/images/:imgName", a.h_GET_images_png_download)
 
 	// Create new org - will be used by superadmin only
@@ -148,7 +148,7 @@ func (a *api) DiPostConstruct() {
 
 	// Creates a new profile. The call allows to provide some list of field values
 	//
-	// Example: curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-ptt1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
+	// Example: curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-1-1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
 	a.ge.POST("/profiles", a.h_POST_profiles)
 
 	// Gets profile by its id. Only not empty fields will be returned(!)
@@ -801,7 +801,7 @@ func (a *api) h_POST_orgs_orgId_cameras(c *gin.Context) {
 	}
 
 	w := c.Writer
-	uri := composeURI(c.Request, strconv.FormatInt(camId, 10))
+	uri := composeURIWithPath(c.Request, "cameras", strconv.FormatInt(camId, 10))
 	a.logger.Debug("New camera ", uri, " has been just created")
 	w.Header().Set("Location", uri)
 	c.Status(http.StatusCreated)
@@ -964,15 +964,6 @@ func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 	return val, nil
 }
 
-//func (a *api) authenticated(c *gin.Context) bool {
-//	a.basicAuthF(c)
-//	if c.IsAborted() {
-//		a.logger.Warn("Auhtentication required for ", reqOp(c))
-//		return false
-//	}
-//	return true
-//}
-
 func bindAppJson(c *gin.Context, inf interface{}) error {
 	ct := c.ContentType()
 	fmt.Println("content=", ct)
@@ -985,34 +976,6 @@ func bindAppJson(c *gin.Context, inf interface{}) error {
 func reqOp(c *gin.Context) string {
 	return fmt.Sprint(c.Request.Method, " ", c.Request.URL)
 }
-
-// Authenticate the request and authorize the provided login. Will return true
-// if the user is authenticated and it is same as login or superadmin
-//func (a *api) authorizeUser(c *gin.Context, login string) bool {
-//	if !a.authenticated(c) {
-//		return false
-//	}
-//	if !a.authMW.isUserOrSuperadmin(c, login) {
-//		a.logger.Warn("Unathorized ", reqOp(c), " for login=", login, " performed by ", a.authMW.authenticatedUser(c))
-//		c.Status(http.StatusForbidden)
-//		return false
-//	}
-//	return true
-//}
-
-// Authenticate the request and authorize the call if the user is superadmin
-// or org admin
-//func (a *api) authorizeOrgAdmin(c *gin.Context, orgId int64) bool {
-//	if !a.authenticated(c) {
-//		return false
-//	}
-//	if !a.authMW.isOrgAdmin(c, orgId) {
-//		a.logger.Warn("Unathorized ", reqOp(c), " for orgId==", orgId, " performed by ", a.authMW.authenticatedUser(c))
-//		c.Status(http.StatusForbidden)
-//		return false
-//	}
-//	return true
-//}
 
 func (a *api) errorResponse(c *gin.Context, err error) bool {
 	if err == nil {
@@ -1049,6 +1012,10 @@ func (a *api) errorResponse(c *gin.Context, err error) bool {
 	a.logger.Warn("Bad request err=", err)
 	c.JSON(http.StatusInternalServerError, err.Error())
 	return true
+}
+
+func composeURIWithPath(r *http.Request, pth, id string) string {
+	return resolveScheme(r) + "://" + path.Join(resolveHost(r), pth, id)
 }
 
 func composeURI(r *http.Request, id string) string {
