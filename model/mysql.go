@@ -435,7 +435,7 @@ func (mpp *msql_part_tx) UpdateCamera(cam *Camera) error {
 }
 
 func (mpp *msql_part_tx) DeleteCamera(camId int64) error {
-	_, err := mpp.executor().Exec("DELETE camera WHERE id=?", camId)
+	_, err := mpp.executor().Exec("DELETE FROM camera WHERE id=?", camId)
 	if err != nil {
 		mpp.logger.Warn("DeleteCamera(): Could not delete camera with id=", camId, ", got the err=", err)
 		return err

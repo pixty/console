@@ -162,13 +162,13 @@ curl http://api.pixty.io/cameras
 curl -v -XPOST 'http://api.pixty.io/cameras/1/newkey'
 
 // Create new profile and assign fields
-curl -v -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api/pixty.io/images/cm-ptt1504241567000_731_353_950_572.png", "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
+curl -v -u pixtyadmin:123 -H "Content-Type: application/json" -X POST -d '{"AvatarUrl": "https://api.pixty.io/images/cm-1-1504823398975.png", "orgId":1, "Attributes": [{"FieldId": 1, "Value": "Dmitry"}, {"FieldId": 2, "Value": "Spasibenko"}]}' http://api.pixty.io/profiles
 
 // get a profile
 curl http://api.pixty.io/profiles/1
 
-// assign avatar and profile for a person
-curl -v -H "Content-Type: application/json" -X PUT -d '{"AvatarUrl": "https://api/pixty.io/images/cm-ptt1504241567000_731_353_950_572.png", "ProfileId": 1}' http://api.pixty.io/persons/014aa697-45ae-4cfe-bbc7-3ea6e055a386
+// assign avatar and profile for a person - camId must be provided 
+curl -v -u pixtyadmin:123 -H "Content-Type: application/json" -X PUT -d '{"AvatarUrl": "https://api.pixty.io/images/cm-1-1504823398975.png", "profileId": 1, "camId": 1}' http://api.pixty.io/persons/1b1d9491-184b-43d8-89fd-235f81fbb4df
 
 // just get the person
 curl http://api.pixty.io/persons/014aa697-45ae-4cfe-bbc7-3ea6e055a386

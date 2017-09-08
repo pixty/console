@@ -462,6 +462,7 @@ func (dc *dta_controller) DescribePerson(aCtx auth.Context, pId string, includeD
 }
 
 func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
+	dc.logger.Debug("UpdatePerson(): person=", mp)
 	pp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return err
@@ -480,7 +481,7 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 		}
 		if !inOrg {
 			dc.logger.Warn("UpdatePerson(): the profile=", mp.ProfileId, ", seems to be not in the same organization")
-			return common.NewError(common.ERR_NOT_FOUND, "There is not profile with id="+strconv.FormatInt(mp.ProfileId, 10))
+			return common.NewError(common.ERR_NOT_FOUND, "There is no profile with id="+strconv.FormatInt(mp.ProfileId, 10))
 		}
 	}
 

@@ -1176,6 +1176,7 @@ func (a *api) person2mperson(p *Person) (*model.Person, error) {
 		ps.PictureId = id
 	}
 	ps.ProfileId = ptr2int64(p.ProfileId, -1)
+	ps.CamId = ptr2int64(p.CamId, -1)
 	return ps, nil
 }
 
