@@ -347,7 +347,7 @@ func (a *api) h_GET_orgs_orgId(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, a.morg2org(orgDesc.Org, orgDesc.Fields, orgDesc.Cams))
+	c.JSON(http.StatusOK, a.morg2org(orgDesc))
 }
 
 // Create new field. the number of fields is limited
@@ -1249,12 +1249,13 @@ func (a *api) org2morg(org *Organization) *model.Organization {
 	return mo
 }
 
-func (a *api) morg2org(mo *model.Organization, fis []*model.FieldInfo, cams []*model.Camera) *Organization {
+func (a *api) morg2org(od *service.OrgDesc) *Organization {
 	org := new(Organization)
-	org.Id = mo.Id
-	org.Name = mo.Name
-	org.Meta = a.fieldInfos2MetaInfos(fis)
-	org.Cameras = a.mcams2cams(cams)
+	org.Id = od.Org.Id
+	org.Name = od.Org.Name
+	org.Meta = a.fieldInfos2MetaInfos(od.Fields)
+	org.Cameras = a.mcams2cams(od.Cams)
+	org.Users = a.muserRoles2userRoles(od.Users)
 	return org
 }
 

@@ -14,7 +14,8 @@ type (
 		Meta OrgMetaInfoArr `json:"metaInfo"`
 
 		// optional
-		Cameras []*Camera `json:"cameras,omitempty"`
+		Cameras []*Camera   `json:"cameras,omitempty"`
+		Users   []*UserRole `json:"users,omitempty"`
 	}
 
 	OrgMetaInfoArr []*OrgMetaInfo

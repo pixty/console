@@ -36,7 +36,7 @@ type (
 		Persister  model.Persister       `inject:"persister"`
 		ScnService *scene.SceneProcessor `inject:"scnProcessor"`
 		log        gorivets.Logger
-		sessions   gorivets.LRU
+		sessions   gorivets.LRU     // sessId->camId
 		camId2sess map[int64]string // access keys to sess
 		listener   net.Listener
 		started    bool

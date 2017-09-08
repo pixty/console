@@ -56,6 +56,7 @@ type (
 		Org    *model.Organization
 		Fields []*model.FieldInfo
 		Cams   []*model.Camera
+		Users  []*model.UserRole
 	}
 
 	PersonDesc struct {
@@ -108,9 +109,16 @@ func (dc *dta_controller) GetOrgDesc(orgId int64) (*OrgDesc, error) {
 	}
 
 	org, err := mmp.GetOrg(orgId)
+	mmp.Begin()
+	defer mmp.Commit()
 	if err != nil {
 		return nil, err
 	}
+	urs, err := mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId})
+	if err != nil {
+		return nil, err
+	}
+
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
 		return nil, err
@@ -128,7 +136,7 @@ func (dc *dta_controller) GetOrgDesc(orgId int64) (*OrgDesc, error) {
 		return nil, err
 	}
 
-	return &OrgDesc{Org: org, Fields: fis, Cams: cams}, nil
+	return &OrgDesc{Org: org, Fields: fis, Cams: cams, Users: urs}, nil
 }
 
 func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) error {

@@ -376,9 +376,9 @@ func (mmp *msql_main_tx) DeleteUserRoles(q *UserRoleQuery) error {
 
 func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
 	where, params := q.getWhereCondition()
-	query := "SELECT org_id, role FROM user_role " + where
+	query := "SELECT login, org_id, role FROM user_role " + where
 
-	mmp.logger.Debug("FindUserRoles(): quer=", query, " params=", params)
+	mmp.logger.Debug("FindUserRoles(): query=", query, " params=", params)
 	rows, err := mmp.executor().Query(query, params...)
 	if err != nil {
 		mmp.logger.Warn("FindUserRoles(): Could not get user roles by user Query=", q, ", got the err=", err)
@@ -389,8 +389,7 @@ func (mmp *msql_main_tx) FindUserRoles(q *UserRoleQuery) ([]*UserRole, error) {
 	res := []*UserRole{}
 	for rows.Next() {
 		ur := new(UserRole)
-		rows.Scan(&ur.OrgId, &ur.Role)
-		ur.Login = q.Login
+		rows.Scan(&ur.Login, &ur.OrgId, &ur.Role)
 		res = append(res, ur)
 	}
 	return res, nil
