@@ -21,7 +21,7 @@ import (
 type (
 	SceneProcessor struct {
 		Persister   model.Persister       `inject:"persister"`
-		BlobStorage storage.BlobStorage   `inject:"imgService"`
+		BlobStorage storage.BlobStorage   `inject:""`
 		MainCtx     context.Context       `inject:"mainCtx"`
 		CConfig     *common.ConsoleConfig `inject:""`
 		logger      log4g.Logger
