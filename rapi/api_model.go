@@ -91,7 +91,7 @@ type (
 	}
 
 	SceneTimeline struct {
-		CamId   common.Id   `json:"camId"`
+		CamId   int64       `json:"camId"`
 		Persons []*Person   `json:"persons"`
 		Frame   PictureInfo `json:"frame"`
 	}

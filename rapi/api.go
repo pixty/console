@@ -20,6 +20,7 @@ import (
 	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/auth"
 	"github.com/pixty/console/service/scene"
+	"github.com/pixty/console/service/storage"
 	"golang.org/x/net/context"
 	"gopkg.in/tylerb/graceful.v1"
 )
@@ -27,7 +28,7 @@ import (
 type api struct {
 	ge           *gin.Engine
 	Config       *common.ConsoleConfig  `inject:""`
-	ImgService   common.ImageService    `inject:"imgService"`
+	BlobStorage  storage.BlobStorage    `inject:""`
 	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
 	Persister    model.Persister        `inject:"persister"`
 	MainCtx      context.Context        `inject:"mainCtx"`
@@ -857,18 +858,17 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 	}
 
 	w := c.Writer
-	imgD := a.ImgService.Read(common.Id(imgId), false)
-	if imgD == nil {
+	rd, bm := a.BlobStorage.Read(imgId)
+	if bm == nil {
 		a.logger.Debug("Could not find image with id=", imgId, ", err=", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
 	r := c.Request
-	rd := imgD.Reader.(io.ReadSeeker)
-	fn := imgD.FileName
+	fn := common.ImgMakeFileName(imgId, nil)
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
-	http.ServeContent(w, r, fn, imgD.Timestamp.ToTime(), rd)
+	http.ServeContent(w, r, fn, bm.Timestamp, rd.(io.ReadSeeker))
 }
 
 // ================================ Helpers ==================================
@@ -1136,7 +1136,7 @@ func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 		stl.Persons[i] = prsn
 	}
 
-	stl.CamId = common.Id(scnTl.CamId)
+	stl.CamId = scnTl.CamId
 	stl.Frame.Id = scnTl.LatestPicId
 	stl.Frame.PicURL = a.imgURL(scnTl.LatestPicId)
 

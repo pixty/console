@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jrivets/gorivets"
+	"github.com/pixty/console/service/storage"
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
@@ -19,12 +20,12 @@ import (
 
 type (
 	SceneProcessor struct {
-		Persister  model.Persister       `inject:"persister"`
-		ImgService common.ImageService   `inject:"imgService"`
-		MainCtx    context.Context       `inject:"mainCtx"`
-		CConfig    *common.ConsoleConfig `inject:""`
-		logger     log4g.Logger
-		cpCache    *cam_pictures_cache
+		Persister   model.Persister       `inject:"persister"`
+		BlobStorage storage.BlobStorage   `inject:"imgService"`
+		MainCtx     context.Context       `inject:"mainCtx"`
+		CConfig     *common.ConsoleConfig `inject:""`
+		logger      log4g.Logger
+		cpCache     *cam_pictures_cache
 		// Cutting faces border size
 		border int
 	}
@@ -69,7 +70,7 @@ func (sp *SceneProcessor) DiPhase() int {
 
 func (sp *SceneProcessor) DiInit() error {
 	sp.logger.Info("DiInit()")
-	sp.ImgService.DeleteAllWithPrefix(common.IMG_TMP_CAM_PREFIX)
+	sp.BlobStorage.DeleteAllWithPrefix(common.IMG_TMP_CAM_PREFIX)
 
 	go func() {
 		sleepTime := time.Duration(sp.CConfig.ImgsTmpTTLSec) * time.Second
@@ -77,7 +78,7 @@ func (sp *SceneProcessor) DiInit() error {
 		for {
 			select {
 			case <-time.After(sleepTime):
-				sp.cpCache.on_sweep(sp.ImgService)
+				sp.cpCache.on_sweep(sp.BlobStorage)
 			case <-sp.MainCtx.Done():
 				sp.logger.Info("Shutting down cleaning temporary images loop")
 				return
@@ -331,36 +332,20 @@ func (sp *SceneProcessor) saveFaceImages(camId int64, frame *fpcp.Frame, faces [
 		}
 
 		// Store the face to image store
-		idesc := &common.ImageDescriptor{
-			Id:        common.Id(common.ImgMakeId(imgId, &rect)),
-			Reader:    bytes.NewReader(bb.Bytes()),
-			FileName:  common.ImgMakeFileName(imgId, &rect),
-			CamId:     common.Id(camId),
-			Width:     rect.Dx(),
-			Height:    rect.Dy(),
-			Timestamp: common.Timestamp(frame.Timestamp),
-		}
-		_, err = sp.ImgService.New(idesc)
+		bm := &storage.BlobMeta{Id: common.ImgMakeId(imgId, &rect), Timestamp: time.Now()}
+		_, err = sp.BlobStorage.Add(bytes.NewReader(bb.Bytes()), bm)
 		if err != nil {
 			sp.logger.Error("Could not write image to imgService, err=", err)
 			continue
 		}
-		face.FaceImageId = string(idesc.Id)
+		face.FaceImageId = bm.Id
 	}
 	return nil
 }
 
 func (sp *SceneProcessor) saveFrameImage(imgId string, camId int64, frame *fpcp.Frame) error {
-	idesc := &common.ImageDescriptor{
-		Id:        common.Id(imgId),
-		Reader:    bytes.NewReader(frame.Data),
-		FileName:  common.ImgMakeFileName(imgId, nil),
-		CamId:     common.Id(camId),
-		Width:     int(frame.Size.Width),
-		Height:    int(frame.Size.Height),
-		Timestamp: common.Timestamp(frame.Timestamp),
-	}
-	_, err := sp.ImgService.New(idesc)
+	bm := &storage.BlobMeta{Id: imgId, Timestamp: time.Now()}
+	_, err := sp.BlobStorage.Add(bytes.NewReader(frame.Data), bm)
 	if err == nil {
 		sp.cpCache.set_cam_image(camId, imgId)
 	}
@@ -409,7 +394,7 @@ func (cpc *cam_pictures_cache) on_delete(k, v interface{}) {
 	}
 }
 
-func (cpc *cam_pictures_cache) on_sweep(imgService common.ImageService) {
+func (cpc *cam_pictures_cache) on_sweep(bs storage.BlobStorage) {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
@@ -417,7 +402,7 @@ func (cpc *cam_pictures_cache) on_sweep(imgService common.ImageService) {
 
 	for cpc.dead.Len() > 0 {
 		imgId := cpc.dead.Remove(cpc.dead.Front()).(string)
-		imgService.Delete(common.Id(imgId))
+		bs.Delete(imgId)
 	}
 
 	// swap lists

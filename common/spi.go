@@ -6,7 +6,6 @@ import (
 	//"encoding/base32"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"math"
 	mrand "math/rand"
 	"os"
@@ -19,7 +18,7 @@ import (
 type (
 
 	// Various Identificators
-	Id string
+	//Id string
 
 	// Timestamp is a time in milliseconds
 	Timestamp int64
@@ -28,58 +27,6 @@ type (
 	V128D []float32
 
 	ISO8601Time time.Time
-
-	ImageDescriptor struct {
-		Id        Id
-		Reader    io.Reader
-		FileName  string
-		CamId     Id
-		Width     int
-		Height    int
-		Timestamp Timestamp
-	}
-
-	ImageService interface {
-		// Store the image. id can be provided. If not, the new one will be generated
-		New(id *ImageDescriptor) (Id, error)
-
-		// Returns image descriptor by an image Id. If noData == true, then
-		// only image metadata is filled, but no data reader is returned.
-		// Returns nil if the image is not found
-		Read(imgId Id, noData bool) *ImageDescriptor
-
-		// Deletes an image by its id. Returns error != nil if operation is failed,
-		// returns nil, if the object is not found (succeeded)
-		Delete(imgId Id) error
-
-		// Delete all pictures that starts from prefix
-		DeleteAllWithPrefix(prefix Id) int
-	}
-
-	BlobMeta struct {
-		Id        Id
-		KVPairs   map[string]interface{}
-		Timestamp Timestamp
-		Size      int64
-	}
-
-	BlobStorage interface {
-		// Saves BLOB to the store. The invoker should close the reader itself
-		Add(r io.Reader, bMeta *BlobMeta) (Id, error)
-
-		// Returns reader for the object ID. It is invoker responsibility to
-		// close the reader after use.
-		Read(objId Id) (io.ReadCloser, *BlobMeta)
-
-		// Reads meta data for the object. Returns nil if not found.
-		ReadMeta(objId Id) *BlobMeta
-
-		// Deletes an object by its id. Returns error != nil if operation is failed
-		Delete(objId Id) error
-
-		// Deletes all ids with prefix
-		DeleteAllWithPrefix(prefix Id) int
-	}
 
 	Error struct {
 		code  int
@@ -105,10 +52,6 @@ const (
 // ================================= Misc ====================================
 func NewUUID() string {
 	return uuid.NewV4().String()
-}
-
-func NewId() Id {
-	return Id(uuid.NewV4().String())
 }
 
 func DoesFileExist(fileName string) bool {
@@ -188,15 +131,6 @@ func NewError(code int, param interface{}) *Error {
 
 func (e *Error) Error() string {
 	return e.param.(string)
-}
-
-// ============================== BlobMeta ===================================
-func NewBlobMeta() *BlobMeta {
-	return &BlobMeta{ID_NULL, make(map[string]interface{}), CurrentTimestamp(), 0}
-}
-
-func (bm *BlobMeta) String() string {
-	return fmt.Sprintf("{KVPairs: %v}", bm.KVPairs)
 }
 
 // ============================== Timestamp ==================================
