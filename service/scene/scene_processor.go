@@ -3,7 +3,6 @@ package scene
 import (
 	"bytes"
 	"container/list"
-	"errors"
 	"image"
 	"image/png"
 	"sync"
@@ -295,7 +294,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 func (sp *SceneProcessor) saveFaceImages(camId int64, frame *fpcp.Frame, faces []*model.Face) error {
 	if frame.Data == nil || len(frame.Data) == 0 {
 		sp.logger.Warn("saveFaceImages(): No frame data for camId=", camId)
-		return errors.New("Expecting image in the frame, but not found it.")
+		return common.NewError(common.ERR_INVALID_VAL, "Expecting image in the frame, but not found it.")
 	}
 
 	img, err := png.Decode(bytes.NewReader(frame.Data))
@@ -381,7 +380,7 @@ func (sp *SceneProcessor) toFace(face *fpcp.Face) (*model.Face, error) {
 	toRect(face.Rect, &f.Rect)
 	if face.Vector == nil || len(face.Vector) != 128 {
 		sp.logger.Warn("We got a face for personId=", face.Id, ", but it doesn't have proper vector information (array is nil, or length is not 128 elements) face.Vector=", face.Vector)
-		return nil, errors.New("128 dimensional vector of face is expected.")
+		return nil, common.NewError(common.ERR_INVALID_VAL, "128 dimensional vector of face is expected.")
 	}
 	f.V128D = common.V128D(face.Vector)
 	return f, nil

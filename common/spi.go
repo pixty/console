@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	//"encoding/base32"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -283,11 +282,11 @@ func (v V128D) ToByteSlice() []byte {
 
 func (v V128D) Assign(b []byte) error {
 	if b == nil {
-		return errors.New("Array is nil. Cannot assign it to V123D")
+		return NewError(ERR_INVALID_VAL, "Array is nil. Cannot assign it to V123D")
 	}
 
 	if len(b) != V128D_SIZE {
-		return errors.New("Size of bytes must be " + strconv.Itoa(V128D_SIZE) + " even, but it is " + strconv.Itoa(len(b)))
+		return NewError(ERR_INVALID_VAL, "Size of bytes must be "+strconv.Itoa(V128D_SIZE)+" even, but it is "+strconv.Itoa(len(b)))
 	}
 
 	i := 0

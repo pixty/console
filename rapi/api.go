@@ -1,7 +1,6 @@
 package rapi
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -605,19 +604,12 @@ func (a *api) h_POST_users_userId_password(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func wrapError(msg string, e error) error {
-	if e == nil {
-		return nil
-	}
-	return errors.New(msg + e.Error())
-}
-
 // POST /profiles - o, u, sa
 func (a *api) h_POST_profiles(c *gin.Context) {
 	a.logger.Info("POST /profiles")
 
 	var p Profile
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
+	if a.errorResponse(c, bindAppJson(c, &p)) {
 		return
 	}
 
@@ -675,7 +667,7 @@ func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
 	a.logger.Debug("PUT /profiles/", prfId)
 
 	var p Profile
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
+	if a.errorResponse(c, bindAppJson(c, &p)) {
 		return
 	}
 
@@ -739,7 +731,7 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 	persId := c.Param("persId")
 	a.logger.Debug("PUT /persons/", persId)
 	var p Person
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &p))) {
+	if a.errorResponse(c, bindAppJson(c, &p)) {
 		return
 	}
 
@@ -789,7 +781,7 @@ func (a *api) h_POST_orgs_orgId_cameras(c *gin.Context) {
 	}
 
 	var cam Camera
-	if a.errorResponse(c, wrapError("Cannot unmarshal body, err=", bindAppJson(c, &cam))) {
+	if a.errorResponse(c, bindAppJson(c, &cam)) {
 		return
 	}
 	a.logger.Info("POST /orgs/", orgId, "/cameras ", cam)
@@ -932,7 +924,7 @@ func (a *api) PrintRequest(c *gin.Context) {
 func parseInt64QueryParam(prmName string, vals url.Values) (int64, error) {
 	v := vals[prmName]
 	if v == nil || len(v) == 0 {
-		return 0, errors.New("Param " + prmName + " not found.")
+		return 0, common.NewError(common.ERR_NOT_FOUND, "Query param="+prmName+" is expected, but not found.")
 	}
 	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
 }
@@ -952,11 +944,11 @@ func parseBoolQueryParam(prmName string, vals url.Values, defVal bool) bool {
 func parseInt64Param(c *gin.Context, prmName string) (int64, error) {
 	prm := c.Param(prmName)
 	if prm == "" {
-		return -1, errors.New("Expecting some value for int parameter(" + prmName + ")")
+		return -1, common.NewError(common.ERR_NOT_FOUND, "Expecting some value for int URL path parameter("+prmName+")")
 	}
 	val, err := strconv.ParseInt(prm, 10, 64)
 	if err != nil {
-		return -1, errors.New("Expecting an integer value, but got \"" + prm + "\"")
+		return -1, common.NewError(common.ERR_NOT_FOUND, "Expecting an integer value, but got \""+prm+"\" for URL path parameter="+prmName)
 	}
 	if val < 0 {
 		return -1, common.NewError(common.ERR_INVALID_VAL, "orgId must be positive")

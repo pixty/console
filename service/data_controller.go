@@ -162,8 +162,8 @@ func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) e
 
 	newCount := len(efis) + len(fis)
 	if newCount > cOrgMaxFieldsCount {
-		return errors.New("Your organization can have up to " + strconv.Itoa(cOrgMaxFieldsCount) +
-			" fields, but it is going to be " + strconv.Itoa(newCount))
+		return common.NewError(common.ERR_LIMIT_VIOLATION, "Your organization can have up to "+strconv.Itoa(cOrgMaxFieldsCount)+
+			" fields, but it is going to be "+strconv.Itoa(newCount))
 	}
 
 	// Basic checks
@@ -195,8 +195,8 @@ func (dc *dta_controller) UpdateFieldInfo(fi *model.FieldInfo) error {
 	}
 
 	if efi.OrgId != fi.OrgId {
-		return errors.New("No field Id=" +
-			strconv.FormatInt(fi.Id, 10) + " in the organization")
+		return common.NewError(common.ERR_NOT_FOUND, "No field Id="+
+			strconv.FormatInt(fi.Id, 10)+" in the organization")
 	}
 
 	efi.DisplayName = fi.DisplayName
@@ -214,8 +214,8 @@ func (dc *dta_controller) DeleteFieldInfo(orgId, fldId int64) error {
 	}
 
 	if efi.OrgId != orgId {
-		return errors.New("No field Id=" +
-			strconv.FormatInt(efi.Id, 10) + " in the organization")
+		return common.NewError(common.ERR_NOT_FOUND, "No field Id="+
+			strconv.FormatInt(efi.Id, 10)+" in the organization")
 	}
 	return mpp.DeleteFieldInfo(efi)
 }
@@ -278,7 +278,7 @@ func (dc *dta_controller) InsertProfile(prf *model.Profile) (int64, error) {
 
 	if prf.PictureId != "" && dc.BlobStorage.ReadMeta(common.Id(prf.PictureId)) == nil {
 		dc.logger.Warn("Inserting profile with unknown pictureId=", prf.PictureId)
-		return -1, errors.New("There is no picture with id=" + prf.PictureId)
+		return -1, common.NewError(common.ERR_NOT_FOUND, "There is no picture with id="+prf.PictureId)
 	}
 
 	err = mpp.Begin()
@@ -496,7 +496,7 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 	// Check imageId
 	if mp.PictureId != "" && dc.BlobStorage.ReadMeta(common.Id(mp.PictureId)) == nil {
 		dc.logger.Warn("UpdatePerson(): Unknown pictureId=", mp.PictureId)
-		return errors.New("There is no picture with id=" + mp.PictureId)
+		return common.NewError(common.ERR_NOT_FOUND, "There is no picture with id="+mp.PictureId)
 	}
 	p, err := pp.GetPersonById(mp.Id)
 	if err != nil {
@@ -510,7 +510,7 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 
 func checkFieldInfo(fi *model.FieldInfo, orgId int64) error {
 	if fi.FieldType != "text" {
-		return errors.New("Unknown fieldType=" + fi.FieldType + " expected: text")
+		return common.NewError(common.ERR_INVALID_VAL, "Unknown fieldType="+fi.FieldType+" expected: text")
 	}
 	if fi.OrgId != orgId {
 		return common.NewError(common.ERR_NOT_FOUND, "Unproperly formed DO object: orgId="+strconv.FormatInt(fi.OrgId, 10)+

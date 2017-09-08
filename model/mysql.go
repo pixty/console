@@ -235,26 +235,6 @@ func (mtx *msql_tx) ExecScript(sqlScript string) error {
 }
 
 // ========================= msql_main_persister =============================
-//func (mmp *msql_main_tx) FindCameraById(camId string) (*Camera, error) {
-//	rows, err := mmp.executor().Query("SELECT org_id, secret_key FROM camera WHERE id=?", camId)
-//	if err != nil {
-//		mmp.logger.Warn("Could read camera by id=", camId, ", err=", err)
-//		return nil, err
-//	}
-//	defer rows.Close()
-
-//	if rows.Next() {
-//		cam := new(Camera)
-//		err := rows.Scan(&cam.OrgId, &cam.SecretKey)
-//		cam.Id = camId
-//		if err != nil {
-//			mmp.logger.Warn("FindCameraById(): could not scan result err=", err)
-//		}
-//		return cam, nil
-//	}
-//	return nil, nil
-//}
-
 func (mmp *msql_main_tx) InsertOrg(org *Organization) (int64, error) {
 	res, err := mmp.executor().Exec("INSERT INTO organization(name) VALUES (?)", org.Name)
 	if err != nil {
@@ -512,7 +492,7 @@ func (mpp *msql_part_tx) GetFaceById(fId int64) (*Face, error) {
 		f.V128D.Assign(vec)
 		return f, nil
 	}
-	return nil, nil
+	return nil, common.NewError(common.ERR_NOT_FOUND, "No face with id="+strconv.FormatInt(fId, 10))
 }
 
 func (mpp *msql_part_tx) FindFaces(fQuery *FacesQuery) ([]*Face, error) {

@@ -1,7 +1,6 @@
 package common
 
 import (
-	"errors"
 	"fmt"
 	"image"
 	"strconv"
@@ -43,7 +42,7 @@ func ImgMakeId(imgId string, rect *image.Rectangle) string {
 func ImgParseFileName(imgFileName string) (string, *image.Rectangle, error) {
 	var nilId string
 	if !strings.HasSuffix(imgFileName, ".png") {
-		return nilId, nil, errors.New("Expecting .png filename, but received " + imgFileName)
+		return nilId, nil, NewError(ERR_INVALID_VAL, "Expecting .png filename, but received "+imgFileName)
 	}
 
 	idx := strings.LastIndex(imgFileName, "/")
@@ -61,7 +60,7 @@ func ImgParseFileName(imgFileName string) (string, *image.Rectangle, error) {
 // In: http://localhost:8080/images/abc.jpeg Out: nil, <.png is expected>
 func ImgParseFileNameNotDeep(imgFileName string) (string, error) {
 	if !strings.HasSuffix(imgFileName, ".png") {
-		return "", errors.New("Expecting .png filename, but received " + imgFileName)
+		return "", NewError(ERR_INVALID_VAL, "Expecting .png filename, but received "+imgFileName)
 	}
 	idx := strings.LastIndex(imgFileName, "/")
 	if idx > -1 {
@@ -78,7 +77,7 @@ func ImgParseId(id string) (string, *image.Rectangle, error) {
 		return id, nil, nil
 	}
 	if len(parts) != 5 {
-		return nilId, nil, errors.New("Expecting image in <id>_<x0>_<y0>_<x1>_<y1>.png format")
+		return nilId, nil, NewError(ERR_INVALID_VAL, "Expecting image in <id>_<x0>_<y0>_<x1>_<y1>.png format")
 	}
 
 	x0, err := strconv.Atoi(parts[1])

@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -87,7 +86,7 @@ func (lbs *LfsBlobStorage) Add(r io.Reader, bMeta *common.BlobMeta) (common.Id, 
 	defer lbs.logger.Debug("Done with writing ", bMeta)
 	if r == nil {
 		lbs.logger.Error("reader (r) is nil ")
-		return common.ID_NULL, errors.New("reader cannot be nil")
+		return common.ID_NULL, common.NewError(common.ERR_INVALID_VAL, "reader cannot be nil")
 	}
 
 	if bMeta == nil {
