@@ -398,6 +398,12 @@ func (dc *dta_controller) DeleteProfile(aCtx auth.Context, prfId int64) error {
 		return err
 	}
 
+	err = mpp.UpdatePersonsProfileId(prfId, 0)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
+
 	// in case of error we will commit the transaction either. It's ok
 	return mpp.DeleteProfile(prfId)
 }

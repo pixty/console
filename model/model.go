@@ -188,6 +188,7 @@ type (
 		InsertPersons(persons []*Person) error
 		UpdatePerson(person *Person) error
 		UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error
+		UpdatePersonsProfileId(prfId, newPrfId int64) error
 
 		// ==== FieldInfos ====
 		GetFieldInfo(fldId int64) (*FieldInfo, error)

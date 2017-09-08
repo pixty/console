@@ -728,6 +728,13 @@ func (mpp *msql_part_tx) UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint6
 	return err
 }
 
+// Invoked when a profile is deleted
+func (mpp *msql_part_tx) UpdatePersonsProfileId(prfId, newPrfId int64) error {
+	mpp.logger.Debug("Updating persons with profileId=", prfId, " to newProfileId=", newPrfId)
+	_, err := mpp.executor().Exec("UPDATE person SET profile_i=? WHERE profile_id=?", newPrfId, prfId)
+	return err
+}
+
 // =========== Field Infos
 func (mpp *msql_part_tx) GetFieldInfo(fldId int64) (*FieldInfo, error) {
 	rows, err := mpp.executor().Query("SELECT id, org_id, field_type, display_name FROM field_info WHERE id=?", fldId)
