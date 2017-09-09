@@ -8,6 +8,7 @@ import (
 	"github.com/pixty/console/rapi"
 	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/auth"
+	"github.com/pixty/console/service/email"
 	"github.com/pixty/console/service/fpcp_serv"
 	"github.com/pixty/console/service/scene"
 	"github.com/pixty/console/service/storage"
@@ -44,8 +45,9 @@ func main() {
 	dtaCtrlr := service.NewDataController()
 	authService := auth.NewAuthService()
 	sessService := auth.NewInMemSessionService()
+	esender := email.NewEmailSender()
 
-	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService, lbs)
+	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService, lbs, esender)
 	injector.RegisterOne(msqlPersist, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.RegisterOne(scnProc, "scnProcessor")

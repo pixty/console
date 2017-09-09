@@ -18,6 +18,8 @@ type (
 		InsertOrg(org *model.Organization) (int64, error)
 		// Get organization descriptor, requires context to show app different things
 		GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, error)
+		// Get organization descriptors for the authenticated user
+		GetOrgDescs(aCtx auth.Context) ([]*OrgDesc, error)
 		InsertNewFields(orgId int64, fis []*model.FieldInfo) error
 		GetFieldInfos(orgId int64) ([]*model.FieldInfo, error)
 		UpdateFieldInfo(fi *model.FieldInfo) error
@@ -111,18 +113,9 @@ func (dc *dta_controller) GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, 
 	mmp.Begin()
 	defer mmp.Commit()
 
-	org, err := mmp.GetOrg(orgId)
+	org, err := mmp.GetOrgById(orgId)
 	if err != nil {
 		return nil, err
-	}
-
-	var urs []*model.UserRole
-	if aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OA) == nil {
-		// fill user roles for the org admin only
-		urs, err = mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId})
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
@@ -131,6 +124,21 @@ func (dc *dta_controller) GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, 
 	}
 	mpp.Begin()
 	defer mpp.Commit()
+
+	return dc.getOrgDesc(aCtx, mmp, mpp, org)
+}
+
+func (dc *dta_controller) getOrgDesc(aCtx auth.Context, mmp model.MainTx, mpp model.PartTx, org *model.Organization) (*OrgDesc, error) {
+	orgId := org.Id
+	var urs []*model.UserRole
+	if aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OA) == nil {
+		// fill user roles for the org admin only
+		var err error
+		urs, err = mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId})
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	fis, err := mpp.GetFieldInfos(orgId)
 	if err != nil {
@@ -143,6 +151,52 @@ func (dc *dta_controller) GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, 
 	}
 
 	return &OrgDesc{Org: org, Fields: fis, Cams: cams, Users: urs}, nil
+}
+
+func (dc *dta_controller) GetOrgDescs(aCtx auth.Context) ([]*OrgDesc, error) {
+	mmp, err := dc.Persister.GetMainTx()
+	if err != nil {
+		return nil, err
+	}
+	mmp.Begin()
+	defer mmp.Commit()
+
+	uLogin := aCtx.UserLogin()
+	urs, err := mmp.FindUserRoles(&model.UserRoleQuery{Login: uLogin})
+	if err != nil {
+		return nil, err
+	}
+
+	orgIds := make([]int64, 0, len(urs))
+	for _, ur := range urs {
+		if ur.OrgId < 1 {
+			continue
+		}
+		orgIds = append(orgIds, ur.OrgId)
+	}
+
+	orgs, err := mmp.FindOrgs(&model.OrgQuery{OrgIds: orgIds})
+	if err != nil {
+		return nil, err
+	}
+
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+	mpp.Begin()
+	defer mpp.Commit()
+
+	res := make([]*OrgDesc, len(orgs))
+	for i, org := range orgs {
+		od, err := dc.getOrgDesc(aCtx, mmp, mpp, org)
+		if err != nil {
+			return nil, err
+		}
+		res[i] = od
+	}
+
+	return res, nil
 }
 
 func (dc *dta_controller) InsertNewFields(orgId int64, fis []*model.FieldInfo) error {

@@ -59,6 +59,10 @@ func (lbs *LfsBlobStorage) DiShutdown() {
 	lbs.Shutdown()
 }
 
+func (lbs *LfsBlobStorage) String() string {
+	return fmt.Sprint("LfsBlobStorage:{objects=", lbs.lru.Len(), ", Size=", lbs.lru.Size(), ", storeDir=", lbs.storeDir, "}")
+}
+
 func (lbs *LfsBlobStorage) init() error {
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()

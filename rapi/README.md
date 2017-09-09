@@ -134,11 +134,17 @@ curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "super"}' http:
 // Set new password
 curl -v -H "Content-Type: application/json" -u super:oldpasswd -XPOST -d '{"password":"newpassword"}' http://localhost:8080/users/super/password
 
+// Create new sessions
+curl -v -H "Content-Type: application/json" -X POST -d '{"login": "pixtyadmin", "password": "asdf"}' https://api.pixty.io/sessions
+
 // User asks about his own roles (or superadmin does)
 curl -v -H "Content-Type: application/json" -u super:superpass http://localhost:8080/users/super/userRoles
 
 // Create new organization
 curl -v -H "Content-Type: application/json" -X POST -d '{"name": "pixty"}' -u super:asdf https://api.pixty.io/orgs
+
+// Get all user organizations the user must be authenticated
+curl -v -u pixtyadmin:123 https://api.pixty.io/orgs
 
 // Get an org by id (1)
 curl -v -u pixtyAdmin:123 http://api.pixty.io/orgs/1

@@ -19,6 +19,7 @@ import (
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/auth"
+	"github.com/pixty/console/service/email"
 	"github.com/pixty/console/service/scene"
 	"github.com/pixty/console/service/storage"
 	"golang.org/x/net/context"
@@ -35,6 +36,7 @@ type api struct {
 	Dc           service.DataController `inject:""`
 	SessService  auth.SessionService    `inject:""`
 	AuthService  auth.AuthService       `inject:""`
+	EmSender     email.Sender           `inject:""`
 	authMW       *auth_middleware
 	logger       log4g.Logger
 }
@@ -103,6 +105,9 @@ func (a *api) DiPostConstruct() {
 
 	// Create new org - will be used by superadmin only
 	a.ge.POST("/orgs", a.h_POST_orgs)
+
+	// Gets all authenticated user's organizations JSON object
+	a.ge.GET("/orgs", a.h_GET_orgs)
 
 	// Gets organization JSON object
 	a.ge.GET("/orgs/:orgId", a.h_GET_orgs_orgId)
@@ -193,6 +198,10 @@ func (a *api) DiPostConstruct() {
 // GET /ping
 func (a *api) h_GET_ping(c *gin.Context) {
 	a.logger.Debug("GET /ping")
+	//	err := a.EmSender.Send("dspasibenko@gmail.com", "Hello Dima", "How are U?/nDima.")
+	//	if err != nil {
+	//		a.logger.Error("Could not send err=", err)
+	//	}
 	c.String(http.StatusOK, "pong URL conversion is "+composeURI(c.Request, ""))
 }
 
@@ -314,6 +323,24 @@ func (a *api) h_GET_cameras_timeline(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, a.toSceneTimeline(stl))
+}
+
+// Returns orgs for the logged user
+// GET /orgs
+func (a *api) h_GET_orgs(c *gin.Context) {
+	a.logger.Debug("GET /orgs")
+
+	aCtx := a.getAuthContext(c)
+	if aCtx.UserLogin() == "" {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	ods, err := a.Dc.GetOrgDescs(aCtx)
+	if a.errorResponse(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, a.morgs2orgs(ods))
 }
 
 // Creates a new organization. List of fields will be ignored
@@ -1255,6 +1282,17 @@ func (a *api) org2morg(org *Organization) *model.Organization {
 	mo.Id = org.Id
 	mo.Name = org.Name
 	return mo
+}
+
+func (a *api) morgs2orgs(ods []*service.OrgDesc) []*Organization {
+	if ods == nil {
+		return []*Organization{}
+	}
+	res := make([]*Organization, len(ods))
+	for i, od := range ods {
+		res[i] = a.morg2org(od)
+	}
+	return res
 }
 
 func (a *api) morg2org(od *service.OrgDesc) *Organization {

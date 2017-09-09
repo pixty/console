@@ -148,7 +148,8 @@ type (
 
 		// orgs
 		InsertOrg(org *Organization) (int64, error)
-		GetOrg(orgId int64) (*Organization, error)
+		GetOrgById(orgId int64) (*Organization, error)
+		FindOrgs(q *OrgQuery) ([]*Organization, error)
 
 		// users
 		InsertUser(user *User) error
@@ -209,6 +210,10 @@ type (
 		// Looking for profiles for requiested match groups
 		// profileId -> mg
 		GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error)
+	}
+
+	OrgQuery struct {
+		OrgIds []int64
 	}
 
 	CameraQuery struct {

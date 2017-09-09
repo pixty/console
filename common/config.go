@@ -54,6 +54,11 @@ type ConsoleConfig struct {
 	AuthMaxSessions  int
 	AuthSessionTOSec int
 
+	// Email
+	EmailSmtpServer string
+	EmailSmtpUser   string
+	EmailSmtpPasswd string
+
 	logger log4g.Logger
 }
 
@@ -80,8 +85,10 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.LbsMaxSize = "20G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
 	cc.ImgsTmpTTLSec = 60
-	cc.AuthMaxSessions = 3    // same user can open up to 3 sessions (so far, then will reduce)
-	cc.AuthSessionTOSec = 300 // kick it out in 5 minutes
+	cc.AuthMaxSessions = 3               // same user can open up to 3 sessions (so far, then will reduce)
+	cc.AuthSessionTOSec = 300            // kick it out in 5 minutes
+	cc.EmailSmtpServer = "mail.name.com" // mail.name.com:465?
+	cc.EmailSmtpUser = "support@pixty.io"
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }

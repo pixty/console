@@ -245,10 +245,10 @@ func (mmp *msql_main_tx) InsertOrg(org *Organization) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (mmp *msql_main_tx) GetOrg(orgId int64) (*Organization, error) {
+func (mmp *msql_main_tx) GetOrgById(orgId int64) (*Organization, error) {
 	rows, err := mmp.executor().Query("SELECT name FROM organization WHERE id=?", orgId)
 	if err != nil {
-		mmp.logger.Warn("GetOrg(): Could not get organization by orgId=", orgId, ", got the err=", err)
+		mmp.logger.Warn("GetOrgById(): Could not get organization by orgId=", orgId, ", got the err=", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -259,8 +259,41 @@ func (mmp *msql_main_tx) GetOrg(orgId int64) (*Organization, error) {
 		return org, nil
 	}
 
-	mmp.logger.Warn("GetOrg(): No organization by orgId=", orgId)
+	mmp.logger.Warn("GetOrgById(): No organization by orgId=", orgId)
 	return nil, common.NewError(common.ERR_NOT_FOUND, "No org for orgId="+strconv.FormatInt(orgId, 10))
+}
+
+func (mmp *msql_main_tx) FindOrgs(q *OrgQuery) ([]*Organization, error) {
+	if q.OrgIds == nil || len(q.OrgIds) == 0 {
+		return []*Organization{}, nil
+	}
+	query := "SELECT id, name FROM organization WHERE id IN ("
+	params := []interface{}{}
+	for i, oid := range q.OrgIds {
+		if i > 0 {
+			query += ", ?"
+		} else {
+			query += "?"
+		}
+		params = append(params, oid)
+	}
+	query += ")"
+
+	mmp.logger.Debug("FindOrgs(): query=", query, ", params=", params)
+	rows, err := mmp.executor().Query(query, params...)
+	if err != nil {
+		mmp.logger.Warn("FindOrgs(): Could not get organizations by query=", query, " params=", q.OrgIds, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+	res := make([]*Organization, 0, 1)
+	for rows.Next() {
+		org := new(Organization)
+		rows.Scan(&org.Id, &org.Name)
+		res = append(res, org)
+	}
+
+	return res, nil
 }
 
 func (mmp *msql_main_tx) InsertUser(user *User) error {
