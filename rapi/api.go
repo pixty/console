@@ -220,6 +220,22 @@ func (a *api) h_POST_sessions(c *gin.Context) {
 		return
 	}
 
+	// Hack create context in the middle
+	aCtx := a.authMW.newAuthContext(c, user.Login)
+
+	// compose sessions response
+	urs, err := a.Dc.GetUserRoles(user.Login, 0)
+	var orgDesc *service.OrgDesc
+	if err == nil && len(urs) > 0 && urs[0].OrgId > 0 {
+		orgDesc, _ = a.Dc.GetOrgDesc(aCtx, urs[0].OrgId)
+	}
+	mu, _ := a.Dc.GetUser(user.Login)
+	res := new(Session)
+	res.User = a.muser2user(mu)
+	res.UserRoles = a.muserRoles2userRoles(urs)
+	res.Organization = a.morg2org(orgDesc)
+	res.SessionId = sd.Session()
+
 	// set cookie, header and the response
 	sessId := sd.Session()
 	w := c.Writer
@@ -229,7 +245,7 @@ func (a *api) h_POST_sessions(c *gin.Context) {
 	uri := composeURI(c.Request, sessId)
 	a.logger.Info("New session for ", user.Login, " has been just created")
 	w.Header().Set("Location", uri)
-	c.Status(http.StatusCreated)
+	c.JSON(http.StatusCreated, res)
 }
 
 // DELETE /sessions/:sessId
@@ -342,7 +358,7 @@ func (a *api) h_GET_orgs_orgId(c *gin.Context) {
 		return
 	}
 
-	orgDesc, err := a.Dc.GetOrgDesc(orgId)
+	orgDesc, err := a.Dc.GetOrgDesc(aCtx, orgId)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -498,7 +514,7 @@ func (a *api) h_POST_orgs_orgId_userRoles(c *gin.Context) {
 		return
 	}
 	mur := a.userRole2muserRole(&ur)
-	if a.errorResponse(c, a.Dc.InserUserRole(aCtx, orgId, mur)) {
+	if a.errorResponse(c, a.Dc.InsertUserRole(aCtx, orgId, mur)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -1242,6 +1258,9 @@ func (a *api) org2morg(org *Organization) *model.Organization {
 }
 
 func (a *api) morg2org(od *service.OrgDesc) *Organization {
+	if od == nil {
+		return nil
+	}
 	org := new(Organization)
 	org.Id = od.Org.Id
 	org.Name = od.Org.Name

@@ -95,4 +95,11 @@ type (
 		Persons []*Person   `json:"persons"`
 		Frame   PictureInfo `json:"frame"`
 	}
+
+	Session struct {
+		User         *User         `json:"user,omitempty"`
+		Organization *Organization `json:"org,omitempty"`
+		UserRoles    []*UserRole   `json:"roles,omitempty"`
+		SessionId    string        `json:"sessionId"`
+	}
 )

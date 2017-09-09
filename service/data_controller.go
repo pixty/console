@@ -16,7 +16,8 @@ type (
 	DataController interface {
 		// Orgs and fields
 		InsertOrg(org *model.Organization) (int64, error)
-		GetOrgDesc(orgId int64) (*OrgDesc, error)
+		// Get organization descriptor, requires context to show app different things
+		GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, error)
 		InsertNewFields(orgId int64, fis []*model.FieldInfo) error
 		GetFieldInfos(orgId int64) ([]*model.FieldInfo, error)
 		UpdateFieldInfo(fi *model.FieldInfo) error
@@ -29,10 +30,9 @@ type (
 		SetUserPasswd(user, passwd string) error
 
 		// User Roles
-		InserUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error
+		InsertUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error
 		RevokeUserRole(orgId int64, revokedLogin string) error
 		UpdateUserRoles(login string, orgId int64, urs []*model.UserRole) error
-
 		// Finds users whether by orgId, login or both
 		GetUserRoles(login string, orgId int64) ([]*model.UserRole, error)
 
@@ -103,21 +103,26 @@ func (dc *dta_controller) InsertOrg(org *model.Organization) (int64, error) {
 	return mmp.InsertOrg(org)
 }
 
-func (dc *dta_controller) GetOrgDesc(orgId int64) (*OrgDesc, error) {
+func (dc *dta_controller) GetOrgDesc(aCtx auth.Context, orgId int64) (*OrgDesc, error) {
 	mmp, err := dc.Persister.GetMainTx()
 	if err != nil {
 		return nil, err
 	}
-
-	org, err := mmp.GetOrg(orgId)
 	mmp.Begin()
 	defer mmp.Commit()
+
+	org, err := mmp.GetOrg(orgId)
 	if err != nil {
 		return nil, err
 	}
-	urs, err := mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId})
-	if err != nil {
-		return nil, err
+
+	var urs []*model.UserRole
+	if aCtx.AuthZHasOrgLevel(orgId, auth.AUTHZ_LEVEL_OA) == nil {
+		// fill user roles for the org admin only
+		urs, err = mmp.FindUserRoles(&model.UserRoleQuery{OrgId: orgId})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
@@ -606,7 +611,7 @@ func (dc *dta_controller) SetUserPasswd(login, passwd string) error {
 	return mmp.UpdateUser(user)
 }
 
-func (dc *dta_controller) InserUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error {
+func (dc *dta_controller) InsertUserRole(aCtx auth.Context, orgId int64, ur *model.UserRole) error {
 	mmp, err := dc.Persister.GetMainTx()
 	if err != nil {
 		return err
