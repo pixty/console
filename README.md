@@ -4,28 +4,56 @@ This is a GO project which provides Pixty ReST API.
 # Development environment
 If you want to make changes in console you need to set-up it locally, if you just want to run the console you can use latest docker image (see [Run the console using Docker](#run-the-console-using-docker))
 
-- Install golang (version 1.7 or greater)
-- Clone pixty-console project from github.com:
+## Install golang (version 1.9 or greater)
+## Clone pixty-console project from github.com:
 
 ```
 $ mkdir $GOPATH/src/github.com/pixty
 $ cd $GOPATH/src/github.com/pixty
 $ git clone git@github.com:pixty/console.git
 ```
--  Compile the console:
+## Installing GRPC
+You MUST use the following versions:
+
+### Protobuf
+version 3.4.0, please check:
+```
+$ protoc --version
+libprotoc 3.4.0
+```
+### GRPC
+version 1.4.6, for Mac users use brew. Please check:
+```
+$ brew list grpc
+/usr/local/Cellar/grpc/1.4.6_1/bin/grpc_cli
+/usr/local/Cellar/grpc/1.4.6_1/bin/grpc_cpp_plugin
+/usr/local/Cellar/grpc/1.4.6_1/bin/grpc_csharp_plugin
+/usr/local/Cellar/grpc/1.4.6_1/bin/grpc_node_plugin
+/usr/local/Cellar/grpc/1.4.6_1/bin/grpc_objective_c_plugin
+...
+```
+
+### GRPC go version
+go get will bring you latest master which doesn't work, so you need to go to ${GOPATH}/src/google.golang.org/grpc
+and use the version 1.5.2:
+```
+$ git checkout v1.5.2
+Previous HEAD position was f92cdcd... Change version to 1.6.0
+HEAD is now at b3ddf78... Change version to 1.5.2
+```
+
+##  Compile the console:
 ```
 $ go get
 $ go install -v ./...
 ```
--  Now you can run console locally:
+##  Run console locally:
 ```
 $ pixty_console -help
 ...
 ```
 
-# Installing locally
-The instructions are about to run the console locally. You can use whether to set up all debug environment or use docker to run it.
-### Run the console using Docker
+### Run the console using Docker (TBD. Not relevant yet)
  - Install Docker, if you don't have it installed on your system yet: https://www.docker.com/
  - Create new account if you don't have one on https://dockerhub.com
  - in command line type:
@@ -56,5 +84,5 @@ If you would like to run the console locally please do the following:
 2. Run the console:
 
 ```
-$ console -debug
+$ pixty_console -debug
 ```
