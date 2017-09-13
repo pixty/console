@@ -949,7 +949,7 @@ func (mpp *msql_part_tx) UpdateProfile(prf *Profile) error {
 }
 
 func (mpp *msql_part_tx) GetProfileById(pId int64) (*Profile, error) {
-	res, err := mpp.executor().Query("SELECT p.org_id, p.picture_id FROM profile WHERE id=?", pId)
+	res, err := mpp.executor().Query("SELECT p.org_id, p.picture_id FROM profile AS p WHERE p.id=?", pId)
 	if err != nil {
 		mpp.logger.Warn("GetProfileById: Requesting profile by id=", pId, ", err=", err)
 		return nil, err
