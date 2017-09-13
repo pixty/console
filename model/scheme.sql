@@ -116,6 +116,14 @@ CREATE TABLE IF NOT EXISTS `profile_meta` (
 	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
+CREATE TABLE IF NOT EXISTS `profile_kvs` (
+	`profile_id`                 BIGINT(20)      NOT NULL,
+	`key`                        VARCHAR(100)    NOT NULL,
+	`value`                      VARCHAR(16535)  NOT NULL, 
+	UNIQUE `profile_id_key_idx` USING BTREE (profile_id, `key`),
+	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
 #After creation for test camera
 #insert into organization(id, name) values(1, 'pixty');
 #insert into camera(id, org_id, secret_key) values("ptt", 1, "1234");

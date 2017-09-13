@@ -353,11 +353,11 @@ func (dc *dta_controller) InsertProfile(prf *model.Profile) (int64, error) {
 	}
 	prf.Id = pid
 
-	err = dc.insertProfileMeta(prf, mpp)
+	err = dc.insertProfileMetaAndKVs(prf, mpp)
 	return pid, err
 }
 
-func (dc *dta_controller) insertProfileMeta(prf *model.Profile, mpp model.PartTx) error {
+func (dc *dta_controller) insertProfileMetaAndKVs(prf *model.Profile, mpp model.PartTx) error {
 	if prf.Meta != nil {
 		valid := prf.Meta[:0]
 		for _, pm := range prf.Meta {
@@ -373,6 +373,12 @@ func (dc *dta_controller) insertProfileMeta(prf *model.Profile, mpp model.PartTx
 			return err
 		}
 	}
+
+	err := mpp.InsertProfileKVs(prf)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
 	return nil
 }
 
@@ -382,17 +388,7 @@ func (dc *dta_controller) GetProfile(prfId int64) (*model.Profile, error) {
 		return nil, err
 	}
 
-	prfs, err := mpp.GetProfiles(&model.ProfileQuery{ProfileIds: []int64{prfId}})
-	if err != nil {
-		return nil, err
-	}
-
-	if prfs == nil || len(prfs) == 0 {
-		dc.logger.Debug("No profiles found by id=", prfId)
-		return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find profile by id="+strconv.FormatInt(prfId, 10))
-	}
-
-	return prfs[0], nil
+	return mpp.GetProfileById(prfId)
 }
 
 func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
@@ -406,18 +402,24 @@ func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
 	}
 	defer mpp.Commit()
 
-	prfs, err := mpp.GetProfiles(&model.ProfileQuery{ProfileIds: []int64{prf.Id}})
+	p, err := mpp.GetProfileById(prf.Id)
 	if err != nil {
 		return err
 	}
 
-	if prfs == nil || len(prfs) == 0 || prfs[0].OrgId != prf.OrgId {
-		dc.logger.Debug("No profiles found by id=", prf.Id, " for the orgId=", prf.OrgId, ", query result was ", prfs)
+	if p.OrgId != prf.OrgId {
+		dc.logger.Debug("No profiles found by id=", prf.Id, " for the orgId=", prf.OrgId, ", query result was ", p)
 		return common.NewError(common.ERR_NOT_FOUND, "Could not find profile by id="+strconv.FormatInt(prf.Id, 10))
 	}
 
 	// Delete all profile metas and keep eye on rollbacking the transaction in case of error
 	err = mpp.DeleteAllProfileMetas(prf.Id)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
+
+	err = mpp.DeleteProfileKVs(prf.Id)
 	if err != nil {
 		mpp.Rollback()
 		return err
@@ -429,7 +431,7 @@ func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
 		return err
 	}
 
-	return dc.insertProfileMeta(prf, mpp)
+	return dc.insertProfileMetaAndKVs(prf, mpp)
 }
 
 func (dc *dta_controller) DeleteProfile(aCtx auth.Context, prfId int64) error {
@@ -520,7 +522,7 @@ func (dc *dta_controller) DescribePerson(aCtx auth.Context, pId string, includeD
 		prfArr = append(prfArr, person.ProfileId)
 	}
 
-	profs, err := pp.GetProfiles(&model.ProfileQuery{ProfileIds: prfArr, NoMeta: !includeMeta})
+	profs, err := pp.GetProfiles(&model.ProfileQuery{ProfileIds: prfArr, AllMeta: includeMeta})
 	if err != nil {
 		return nil, err
 	}

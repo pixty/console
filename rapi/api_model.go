@@ -49,9 +49,10 @@ type (
 	}
 
 	Profile struct {
-		Id        int64   `json:"id, omitempty"`
-		OrgId     int64   `json:"orgId,omitempty"`
-		AvatarUrl *string `json:"avatarUrl,omitempty"`
+		Id           int64             `json:"id, omitempty"`
+		OrgId        int64             `json:"orgId,omitempty"`
+		AvatarUrl    *string           `json:"avatarUrl,omitempty"`
+		MappedFields map[string]string `json:"mappedFields,omitempty"`
 
 		// Key-Value pairs for the organization
 		Attributes []*ProfileAttribute `json:"attributes,omitempty"`

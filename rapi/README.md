@@ -138,7 +138,7 @@ curl -v -H "Content-Type: application/json" -u super:oldpasswd -XPOST -d '{"pass
 curl -v -H "Content-Type: application/json" -X POST -d '{"login": "pixtyadmin", "password": "asdf"}' https://api.pixty.io/sessions
 
 // User asks about his own roles (or superadmin does)
-curl -v -H "Content-Type: application/json" -u super:superpass http://localhost:8080/users/super/userRoles
+curl -v -u super:superpass http://localhost:8080/users/super/userRoles
 
 // Create new organization
 curl -v -H "Content-Type: application/json" -X POST -d '{"name": "pixty"}' -u super:asdf https://api.pixty.io/orgs
@@ -149,7 +149,7 @@ curl -v -u pixtyadmin:123 https://api.pixty.io/orgs
 // Get an org by id (1)
 curl -v -u pixtyAdmin:123 http://api.pixty.io/orgs/1
 
-// assign userrole
+// assign a user role
 curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "pixtyadmin", "orgId": 1, "role":"orgadmin"}' -u super:123 http://localhost:8080/orgs/1/userRoles
 
 // Create new fields (2 here )

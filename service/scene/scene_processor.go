@@ -202,7 +202,7 @@ func (sp *SceneProcessor) GetTimelineView(camId int64, maxTs common.Timestamp, l
 		}
 	}
 
-	profs, err := pp.GetProfiles(&model.ProfileQuery{ProfileIds: prArr, NoMeta: true})
+	profs, err := pp.GetProfiles(&model.ProfileQuery{ProfileIds: prArr, AllMeta: false})
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 	return nil
 }
 
-// Cut faces and store them images. Also pupulates the following fields
+// Cut faces and store them images. Also populates the following fields
 // - ImageId
 // - FaceImageId
 // for the faces array provided

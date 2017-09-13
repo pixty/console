@@ -94,8 +94,10 @@ type (
 		OrgId     int64
 		PictureId string // avatar
 
-		//Meta (composit one)
+		// Meta (composit one)
 		Meta []*ProfileMeta
+		// Profile KVs
+		KeyVals map[string]string
 	}
 
 	ProfileMeta struct {
@@ -207,6 +209,11 @@ type (
 		GetProfileMetas(prfIds []int64) ([]*ProfileMeta, error)
 		DeleteAllProfileMetas(prfId int64) error
 		GetProfiles(prQuery *ProfileQuery) ([]*Profile, error)
+		GetProfileById(pId int64) (*Profile, error)
+		InsertProfileKVs(profile *Profile) error
+		DeleteProfileKVs(prfId int64) error
+		GetProfileKVs(prof *Profile) error
+		GetProfilesKVs([]*Profile) error
 		// Looking for profiles for requiested match groups
 		// profileId -> mg
 		GetProfilesByMGs(matchGroups []int64) (map[int64]int64, error)
@@ -241,8 +248,8 @@ type (
 
 	ProfileQuery struct {
 		ProfileIds []int64
-		// Indicates, that meta is not needed
-		NoMeta bool
+		// Indicates that all meta-information must be read
+		AllMeta bool
 	}
 
 	UserRoleQuery struct {

@@ -657,7 +657,7 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 		return
 	}
 
-	prf, err := a.profile2mProfile(&p)
+	prf, err := a.profile2mprofile(&p)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -698,7 +698,7 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, a.profile2mprofile(p))
+	c.JSON(http.StatusOK, a.mprofile2profile(p))
 }
 
 // Updates profile. All provided values will be replaced, all other ones will be lost
@@ -715,7 +715,7 @@ func (a *api) h_PUT_profiles_prfId(c *gin.Context) {
 		return
 	}
 
-	prf, err := a.profile2mProfile(&p)
+	prf, err := a.profile2mprofile(&p)
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -1134,7 +1134,7 @@ func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {
 	if prsnDesc.Profiles != nil {
 		mchs := make([]*Profile, 0, len(prsnDesc.Profiles))
 		for _, mp := range prsnDesc.Profiles {
-			pr := a.profile2mprofile(mp)
+			pr := a.mprofile2profile(mp)
 			if mp.Id == prsnDesc.Person.ProfileId {
 				p.Profile = pr
 			}
@@ -1149,7 +1149,7 @@ func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {
 }
 
 func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
-	prfMap := a.profilesToProfiles(scnTl.Profiles)
+	prfMap := a.mprofiles2profiles(scnTl.Profiles)
 	mg2Profs := make(map[int64][]*Profile)
 	for pid, mgId := range scnTl.Prof2MGs {
 		arr, ok := mg2Profs[mgId]
@@ -1215,22 +1215,23 @@ func (a *api) person2mperson(p *Person) (*model.Person, error) {
 	return ps, nil
 }
 
-func (a *api) profilesToProfiles(profiles map[int64]*model.Profile) map[int64]*Profile {
+func (a *api) mprofiles2profiles(profiles map[int64]*model.Profile) map[int64]*Profile {
 	res := make(map[int64]*Profile)
 	if profiles != nil && len(profiles) > 0 {
 		for pid, p := range profiles {
-			res[pid] = a.profile2mprofile(p)
+			res[pid] = a.mprofile2profile(p)
 		}
 	}
 	return res
 }
 
-func (a *api) profile2mprofile(prf *model.Profile) *Profile {
+func (a *api) mprofile2profile(prf *model.Profile) *Profile {
 	p := new(Profile)
 	p.Id = prf.Id
 	p.OrgId = prf.OrgId
 	p.AvatarUrl = toPtrString(a.imgURL(prf.PictureId))
 	p.Attributes = a.metasToAttributes(prf.Meta)
+	p.MappedFields = prf.KeyVals
 	return p
 }
 
@@ -1388,10 +1389,11 @@ func (a *api) metaInfo2FieldInfo(mi *OrgMetaInfo) *model.FieldInfo {
 	return fi
 }
 
-func (a *api) profile2mProfile(p *Profile) (*model.Profile, error) {
+func (a *api) profile2mprofile(p *Profile) (*model.Profile, error) {
 	prf := new(model.Profile)
 	prf.Id = p.Id
 	prf.OrgId = p.OrgId
+	prf.KeyVals = p.MappedFields
 	avtUrl := ptr2string(p.AvatarUrl, "")
 	if avtUrl != "" {
 		id, err := common.ImgParseFileNameNotDeep(avtUrl)

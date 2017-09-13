@@ -2,6 +2,7 @@ package rapi
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -193,6 +194,10 @@ func (am *auth_middleware) getCamOrgId(camId int64) (int64, error) {
 //=============================== auth_ctx ===================================
 var cAuthnErr = common.NewError(common.ERR_AUTH_REQUIRED, "The call requires authentication")
 
+func (ac *auth_ctx) String() string {
+	return fmt.Sprintf("auth_ctx{login=", ac.login, "}")
+}
+
 func (ac *auth_ctx) AuthN() error {
 	if ac.login == "" {
 		return cAuthnErr
@@ -226,6 +231,7 @@ func (ac *auth_ctx) AuthZOrgAdmin(orgId int64) error {
 		return err
 	}
 	if al < auth.AUTHZ_LEVEL_OA {
+		ac.am.logger.Debug("access level=", al, " for ac=", ac)
 		return common.NewError(common.ERR_UNAUTHORIZED, "Only organization admins are authorized to make the call")
 	}
 	return nil

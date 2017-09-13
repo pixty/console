@@ -948,6 +948,28 @@ func (mpp *msql_part_tx) UpdateProfile(prf *Profile) error {
 	return err
 }
 
+func (mpp *msql_part_tx) GetProfileById(pId int64) (*Profile, error) {
+	res, err := mpp.executor().Query("SELECT p.org_id, p.picture_id FROM profile WHERE id=?", pId)
+	if err != nil {
+		mpp.logger.Warn("GetProfileById: Requesting profile by id=", pId, ", err=", err)
+		return nil, err
+	}
+	defer res.Close()
+	if !res.Next() {
+		return nil, common.NewError(common.ERR_NOT_FOUND, "Cannot find profile by id="+strconv.FormatInt(pId, 10))
+	}
+
+	p := new(Profile)
+	p.Id = pId
+	res.Scan(&p.OrgId, &p.OrgId)
+	metas, err := mpp.GetProfileMetas([]int64{pId})
+	if err != nil {
+		return nil, err
+	}
+	p.Meta = metas
+	return p, mpp.GetProfileKVs(p)
+}
+
 func (mpp *msql_part_tx) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) {
 	mpp.logger.Debug("GetProfiles: Requesting profiles by ", prQuery)
 	q := "SELECT p.id, p.org_id, p.picture_id FROM profile AS p "
@@ -999,9 +1021,6 @@ func (mpp *msql_part_tx) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) 
 		pMap[p.Id] = p
 	}
 
-	if prQuery.NoMeta {
-		return res, nil
-	}
 	pms, err := mpp.GetProfileMetas(prQuery.ProfileIds)
 	if err != nil {
 		mpp.logger.Warn("GetProfiles(): could not read profile Metas err=", err)
@@ -1017,6 +1036,14 @@ func (mpp *msql_part_tx) GetProfiles(prQuery *ProfileQuery) ([]*Profile, error) 
 			pr.Meta = make([]*ProfileMeta, 0, 2)
 		}
 		pr.Meta = append(pr.Meta, pm)
+	}
+
+	if prQuery.AllMeta {
+		err = mpp.GetProfilesKVs(res)
+		if err != nil {
+			mpp.logger.Warn("GetProfiles(): could not read k-v pairs err=", err)
+			return nil, err
+		}
 	}
 
 	return res, nil
@@ -1060,4 +1087,88 @@ func (mpp *msql_part_tx) GetProfilesByMGs(matchGroups []int64) (map[int64]int64,
 	}
 
 	return prfMap, nil
+}
+
+func (mpp *msql_part_tx) InsertProfileKVs(prof *Profile) error {
+	if prof.KeyVals == nil || len(prof.KeyVals) == 0 {
+		return nil
+	}
+	q := "INSERT INTO profile_kvs(`profile_id`, `key`, `value`) VALUES "
+
+	params := []interface{}{}
+	first := true
+	for k, v := range prof.KeyVals {
+		if first {
+			q += "(?,?,?)"
+		} else {
+			q += ", (?,?,?)"
+		}
+		first = false
+		params = append(params, prof.Id, k, v)
+	}
+	mpp.logger.Debug("InsertProfileKVs(): q=", q, " params=", params)
+	_, err := mpp.executor().Exec(q, params...)
+	return err
+}
+
+func (mpp *msql_part_tx) DeleteProfileKVs(prfId int64) error {
+	_, err := mpp.executor().Exec("DELETE FROM profile_kvs WHERE profile_id=?", prfId)
+	return err
+}
+
+func (mpp *msql_part_tx) GetProfileKVs(prof *Profile) error {
+	res, err := mpp.executor().Query("SELECT `key`, `value` FROM profile_kvs WHERE profile_id=?", prof.Id)
+	if err != nil {
+		mpp.logger.Warn("GetProfileKVs(): could not read key-value pairs for profileI=", prof.Id, ", err=", err)
+		return err
+	}
+	defer res.Close()
+
+	prof.KeyVals = make(map[string]string)
+	for res.Next() {
+		var k, v string
+		res.Scan(&k, &v)
+		prof.KeyVals[k] = v
+	}
+	return nil
+}
+
+func (mpp *msql_part_tx) GetProfilesKVs(profs []*Profile) error {
+	if profs == nil || len(profs) == 0 {
+		return nil
+	}
+
+	q := "SELECT profile_id, `key`, `value` FROM profile_kvs WHERE profile_id IN("
+	whereParams := []interface{}{}
+	pMap := make(map[int64]*Profile)
+	for i, p := range profs {
+		if i > 0 {
+			q += ", ?"
+		} else {
+			q += "?"
+		}
+		whereParams = append(whereParams, p.Id)
+		pMap[p.Id] = p
+	}
+	q += ")"
+
+	mpp.logger.Debug("GetProfileKVs(): q=", q, ", whereParams=", whereParams)
+	res, err := mpp.executor().Query(q, whereParams...)
+	if err != nil {
+		mpp.logger.Warn("GetProfileKVs(): could not read key-values for q=", q, " params=", whereParams, ", err=", err)
+		return err
+	}
+	defer res.Close()
+
+	for res.Next() {
+		var pid int64
+		var k, v string
+		res.Scan(&pid, &k, &v)
+		p := pMap[pid]
+		if p.KeyVals == nil {
+			p.KeyVals = make(map[string]string)
+		}
+		p.KeyVals[k] = v
+	}
+	return nil
 }
