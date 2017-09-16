@@ -8,6 +8,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jrivets/log4g"
+
 	"github.com/pixty/console/service/storage"
 )
 
@@ -65,6 +67,7 @@ func TestMutiFrame(t *testing.T) {
 	//defer os.RemoveAll("./test-store")
 
 	is := NewImageService()
+	log4g.SetLogLevel("pixty", log4g.DEBUG)
 	is.BlobStorage = bs
 
 	res, err := is.StoreNewFrame(1, 123456, getTestImage(),

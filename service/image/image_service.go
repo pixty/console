@@ -113,7 +113,7 @@ func (ims *ImageService) StoreNewFrame(camId, frameId int64, img image.Image, re
 		for i := sizeCodesMap[ims.dfltSize] - 1; i >= 0; i-- {
 			sc := sizeCodes[i]
 			iDsc.size = sc
-			sImg, ok := ims.scaleImage(ims.dfltSize, img)
+			sImg, ok := ims.scaleImage(sc, img)
 			if ok {
 				err = ims.storeImage(iDsc, sImg)
 				if err != nil {
@@ -134,10 +134,12 @@ func (ims *ImageService) scaleImage(size byte, img image.Image) (image.Image, bo
 	h := img.Bounds().Dy()
 
 	nsImg := img
+	resized := false
 
 	// First resize if needed
 	if size != IMG_SIZE_ORIGINAL {
 		dw, dh := getDimensionsBySizeCode(size)
+		ims.logger.Debug("Scale Image: w=", w, ", h=", h, ", dw=", dw, ", dh=", dh, ", size=", string(size))
 
 		if w == 0 || h == 0 || dw == 0 || dh == 0 {
 			ims.logger.Warn("Cannot save an image with 0 width or height: w=", w, ", h=", h, ", dw=", dw, ", dh=", dh)
@@ -149,7 +151,7 @@ func (ims *ImageService) scaleImage(size byte, img image.Image) (image.Image, bo
 
 		if ddw >= 1.0 && ddh >= 1.0 {
 			// desired size is bigger than original, do nothing, we don't streach
-			ims.logger.Debug("Orginal size less than desired, don't streach: ddw=", ddw, ", ddh=", ddh)
+			ims.logger.Debug("Orginal size less than desired, don't streach: w=", w, ", h=", h, ", dw=", dw, ", dh=", dh)
 			return nsImg, false
 		}
 
@@ -163,9 +165,10 @@ func (ims *ImageService) scaleImage(size byte, img image.Image) (image.Image, bo
 
 		ims.logger.Debug("Scale picutre w=", w, ", h=", h, " newW=", nw, ", newH=", nh)
 		nsImg = resize.Resize(nw, nh, img, resize.Bilinear)
+		resized = true
 	}
 
-	return nsImg, false
+	return nsImg, resized
 }
 
 // Stores the provided image by the descriptor. If the operation

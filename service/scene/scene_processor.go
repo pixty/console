@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"container/list"
 	"image"
+	"image/jpeg"
 	"image/png"
 	"sync"
 	"time"
@@ -298,9 +299,15 @@ func (sp *SceneProcessor) saveFaceImages(camId int64, frame *fpcp.Frame, faces [
 		return common.NewError(common.ERR_INVALID_VAL, "Expecting image in the frame, but not found it.")
 	}
 
-	img, err := png.Decode(bytes.NewReader(frame.Data))
+	var img image.Image
+	var err error
+	if frame.Format == fpcp.Frame_PNG {
+		img, err = png.Decode(bytes.NewReader(frame.Data))
+	} else {
+		img, err = jpeg.Decode(bytes.NewReader(frame.Data))
+	}
 	if err != nil {
-		sp.logger.Warn("Cannot decode png image err=", err)
+		sp.logger.Warn("Cannot decode image with Frame_Format=", frame.Format, " err=", err)
 		return err
 	}
 

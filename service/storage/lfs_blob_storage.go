@@ -43,7 +43,7 @@ func newBlobMeta() *BlobMeta {
 }
 
 func (bm *BlobMeta) String() string {
-	return fmt.Sprintf("{Id: ", bm.Id, ", ts=", bm.Timestamp.Format("01-02-2017 12:13:43"), ", size=", bm.Size, "}")
+	return fmt.Sprint("{Id=", bm.Id, ", ts=", bm.Timestamp.Format("01-02-2017 12:13:43"), ", size=", bm.Size, "}")
 }
 
 // ============================= LifeCycler ==================================
