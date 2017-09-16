@@ -201,8 +201,8 @@ func (mtx *msql_tx) Commit() error {
 	if mtx.tx != nil {
 		err = mtx.tx.Commit()
 		mtx.tx = nil
+		mtx.logger.Debug("Commit() done. err=", err)
 	}
-	mtx.logger.Debug("Commit() done. err=", err)
 	return err
 }
 
@@ -421,6 +421,7 @@ func (mpp *msql_part_tx) InsertCamera(cam *Camera) (int64, error) {
 }
 
 func (mpp *msql_part_tx) GetCameraById(camId int64) (*Camera, error) {
+	mpp.logger.Debug("GetCameraById(): Getting camera by id=", camId)
 	rows, err := mpp.executor().Query("SELECT name, org_id, secret_key FROM camera WHERE id=?", camId)
 	if err != nil {
 		mpp.logger.Warn("GetCameraById(): Getting camera by id=", camId, ", got the err=", err)
@@ -943,25 +944,32 @@ func (mpp *msql_part_tx) DeleteAllProfileMetas(prfId int64) error {
 }
 
 func (mpp *msql_part_tx) UpdateProfile(prf *Profile) error {
-	mpp.logger.Debug("UpdateProfile(): updating profile ", prf)
-	_, err := mpp.executor().Exec("UPDATE profile WHERE id=? SET PictureId=?", prf.Id, prf.PictureId)
+	mpp.logger.Debug("UpdateProfile(): updating profile(setting only picture_id actually) ", prf)
+	_, err := mpp.executor().Exec("UPDATE profile SET picture_id=? WHERE id=? ", prf.PictureId, prf.Id)
 	return err
 }
 
 func (mpp *msql_part_tx) GetProfileById(pId int64) (*Profile, error) {
-	res, err := mpp.executor().Query("SELECT p.org_id, p.picture_id FROM profile AS p WHERE p.id=?", pId)
+	mpp.logger.Debug("GetProfileById(): Getting profile by id=", pId)
+	rows, err := mpp.executor().Query("SELECT org_id, picture_id FROM profile WHERE id=?", pId)
 	if err != nil {
 		mpp.logger.Warn("GetProfileById: Requesting profile by id=", pId, ", err=", err)
 		return nil, err
 	}
-	defer res.Close()
-	if !res.Next() {
+	defer rows.Close()
+	if !rows.Next() {
 		return nil, common.NewError(common.ERR_NOT_FOUND, "Cannot find profile by id="+strconv.FormatInt(pId, 10))
 	}
 
 	p := new(Profile)
 	p.Id = pId
-	res.Scan(&p.OrgId, &p.OrgId)
+	err = rows.Scan(&p.OrgId, &p.PictureId)
+	if err != nil {
+		mpp.logger.Warn("GetProfileById(): Could not scan result err=", err)
+		return nil, err
+	}
+	// If we don't do it in an opened transaction, following calls will fail!
+	rows.Close()
 	metas, err := mpp.GetProfileMetas([]int64{pId})
 	if err != nil {
 		return nil, err
@@ -1112,6 +1120,7 @@ func (mpp *msql_part_tx) InsertProfileKVs(prof *Profile) error {
 }
 
 func (mpp *msql_part_tx) DeleteProfileKVs(prfId int64) error {
+	mpp.logger.Debug("DeleteProfileKVs(): deleting all keys for prfId=", prfId)
 	_, err := mpp.executor().Exec("DELETE FROM profile_kvs WHERE profile_id=?", prfId)
 	return err
 }
