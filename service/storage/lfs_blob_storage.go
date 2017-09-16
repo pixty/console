@@ -161,7 +161,6 @@ func (lbs *LfsBlobStorage) Read(objId string) (io.ReadCloser, *BlobMeta) {
 	bMeta, ok := lbs.objects[objId]
 	if !ok {
 		lbs.logger.Debug("Could not find BLOB by id=", objId)
-		os.Remove(fileName)
 		return nil, nil
 	}
 
@@ -187,28 +186,29 @@ func (lbs *LfsBlobStorage) ReadMeta(objId string) *BlobMeta {
 	return bMeta
 }
 
-func (lbs *LfsBlobStorage) Delete(objId string) error {
-	fileName, err := lbs.getFilePath(objId)
-	if err != nil {
-		lbs.logger.Error("Could not form path for id=", objId, ", err=", err)
-		return err
-	}
-
+func (lbs *LfsBlobStorage) Delete(objIds ...string) error {
 	lbs.rwLock.Lock()
 	defer lbs.rwLock.Unlock()
 
-	lbs.logger.Info("Deleting BLOB by id=", objId)
-	_, ok := lbs.objects[objId]
-	if !ok {
-		lbs.logger.Warn("Could not find BLOB by id=", objId)
-		return nil
-	}
+	for _, objId := range objIds {
+		fileName, err := lbs.getFilePath(objId)
+		if err != nil {
+			continue
+		}
 
-	delete(lbs.objects, objId)
-	go func() {
-		os.Remove(fileName)
-	}()
-	lbs.lru.DeleteWithCallback(objId, false)
+		lbs.logger.Info("Deleting BLOB by id=", objId)
+		_, ok := lbs.objects[objId]
+		if !ok {
+			lbs.logger.Warn("Could not find BLOB by id=", objId)
+			continue
+		}
+
+		delete(lbs.objects, objId)
+		go func() {
+			os.Remove(fileName)
+		}()
+		lbs.lru.DeleteWithCallback(objId, false)
+	}
 	return nil
 }
 

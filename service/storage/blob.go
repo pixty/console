@@ -24,7 +24,7 @@ type (
 		ReadMeta(objId string) *BlobMeta
 
 		// Deletes an object by its id. Returns error != nil if operation is failed
-		Delete(objId string) error
+		Delete(objId ...string) error
 
 		// Deletes all ids with prefix
 		DeleteAllWithPrefix(prefix string) int
