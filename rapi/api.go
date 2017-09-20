@@ -895,7 +895,22 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 	imgName := c.Param("imgName")
 	a.logger.Debug("GET /images/", imgName)
 
-	rdr, err := a.ImageService.GetImageByFileName(imgName, 0, 0)
+	imd := &image.ImgDesc{}
+	err := imd.ParseFileName(imgName)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZCamAccess(imd.CamId, auth.AUTHZ_LEVEL_OA)) {
+		return
+	}
+
+	q := c.Request.URL.Query()
+	wdth, _ := parseInt64QueryParam2("width", q, 0)
+	hght, _ := parseInt64QueryParam2("height", q, 0)
+
+	rdr, err := a.ImageService.GetImageByFileName(imd, int(wdth), int(hght))
 	if a.errorResponse(c, err) {
 		return
 	}
@@ -956,9 +971,22 @@ func (a *api) PrintRequest(c *gin.Context) {
 	c.Next()
 }
 
+func parseInt64QueryParam2(prmName string, vals url.Values, defVal int64) (int64, error) {
+	v := vals[prmName]
+	if len(v) == 0 {
+		return defVal, nil
+	}
+
+	r, err := gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)
+	if err != nil {
+		return defVal, err
+	}
+	return r, nil
+}
+
 func parseInt64QueryParam(prmName string, vals url.Values) (int64, error) {
 	v := vals[prmName]
-	if v == nil || len(v) == 0 {
+	if len(v) == 0 {
 		return 0, common.NewError(common.ERR_NOT_FOUND, "Query param="+prmName+" is expected, but not found.")
 	}
 	return gorivets.ParseInt64(v[0], 0, math.MaxInt64, 0)

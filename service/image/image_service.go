@@ -35,25 +35,20 @@ func NewImageService() *ImageService {
 
 // Returns the image by the desired width or height. If the desired dimensions
 // width(w) and height(h) are less or equal 0, then the default size will be used
-func (ims *ImageService) GetImageByFileName(fileName string, w, h int) (io.ReadCloser, error) {
-	var imd ImgDesc
-	err := imd.ParseFileName(fileName)
-	if err != nil {
-		return nil, err
-	}
+func (ims *ImageService) GetImageByFileName(imd *ImgDesc, w, h int) (io.ReadCloser, error) {
 	imd.Format = IMG_FRMT_JPEG
 	imd.Size = ims.getSizeCode(w, h)
 
 	for {
 		id := imd.getStoreId()
-		ims.logger.Debug("Get image by filename ", fileName, ", id=", id)
+		ims.logger.Debug("Get image by ", imd)
 		rdr, bm := ims.BlobStorage.Read(id)
 		if bm != nil {
 			return rdr, nil
 		}
 
 		if imd.Size == IMG_SIZE_ORIGINAL {
-			return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find image "+fileName)
+			return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find image "+imd.getFileName())
 		}
 		imd.Size = nextSizeCode(imd.Size)
 	}
