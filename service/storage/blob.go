@@ -26,7 +26,7 @@ type (
 		// Deletes an object by its id. Returns error != nil if operation is failed
 		Delete(objId ...string) error
 
-		// Deletes all ids with prefix
+		// Deletes all ids with prefix. Returns number of objects deleted
 		DeleteAllWithPrefix(prefix string) int
 	}
 )

@@ -10,19 +10,19 @@ import (
 )
 
 type (
-	img_desc struct {
+	ImgDesc struct {
 		// Can be regular or temporary object
 		// PFX_PERM or PFX_TMP values
-		prefix string
+		Prefix string
 		// camera Id, an integer
-		camId int64
+		CamId int64
 		// frame Id from the camera, an integer
-		frameId int64
+		FrameId int64
 		// Rectangle on the orginal Id, or the original size
-		rect *image.Rectangle
+		Rect *image.Rectangle
 		// The byte code one of the images
-		size   byte
-		format byte
+		Size   byte
+		Format byte
 	}
 )
 
@@ -35,8 +35,8 @@ const (
 	IMG_SIZE_ORIGINAL = 'o'
 	IMG_SIZE_800x600  = 'l'
 	IMG_SIZE_640x480  = 'm'
-	IMG_SIZE_320x200  = 's'
-	IMG_SIZE_160x100  = 't'
+	IMG_SIZE_320x240  = 's'
+	IMG_SIZE_160x120  = 't'
 
 	// Image format
 	IMG_FRMT_JPEG = 'j'
@@ -51,7 +51,7 @@ var sizeCodes = []byte{'t', 's', 'm', 'l', 'o'}
 // The filename format is expected in the following form:
 // <Prefix>_<CamId>_<FrameId>_[<Rectangle>].jpeg
 // <Rectangle> is encoded like Left-Top-Right-Bottom and optional
-func (imd *img_desc) parseFileName(fn string) error {
+func (imd *ImgDesc) ParseFileName(fn string) error {
 	// only jpeg is acceptable
 	id := strings.TrimSuffix(fn, ".jpeg")
 	if len(id) == len(fn) {
@@ -100,48 +100,48 @@ func (imd *img_desc) parseFileName(fn string) error {
 			return common.NewError(common.ERR_INVALID_VAL, "Unexpected file-name format "+fn+": Wrong rectangle encoding y1="+rParts[3])
 		}
 		rect := image.Rect(x0, y0, x1, y1)
-		imd.rect = &rect
+		imd.Rect = &rect
 	}
-	imd.prefix = parts[0]
-	imd.camId = camId
-	imd.frameId = frmId
-	imd.size = 0
-	imd.format = 0
+	imd.Prefix = parts[0]
+	imd.CamId = camId
+	imd.FrameId = frmId
+	imd.Size = 0
+	imd.Format = 0
 	return nil
 }
 
-func (imd *img_desc) check() {
-	if imd.prefix != PFX_PERM && imd.prefix != PFX_TEMP {
-		panic("Unknown prefix " + imd.prefix)
+func (imd *ImgDesc) check() {
+	if imd.Prefix != PFX_PERM && imd.Prefix != PFX_TEMP {
+		panic("Unknown prefix " + imd.Prefix)
 	}
 
-	if imd.format != IMG_FRMT_JPEG && imd.format != IMG_FRMT_PNG {
-		panic("Unsupported format " + string(imd.format))
+	if imd.Format != IMG_FRMT_JPEG && imd.Format != IMG_FRMT_PNG {
+		panic("Unsupported format " + string(imd.Format))
 	}
 
-	if _, ok := sizeCodesMap[imd.size]; !ok {
-		panic("Unknown size " + string(imd.size))
+	if _, ok := sizeCodesMap[imd.Size]; !ok {
+		panic("Unknown size " + string(imd.Size))
 	}
 }
 
 // Formats file name based on the descriptor settings
-func (imd *img_desc) getFileName() string {
+func (imd *ImgDesc) getFileName() string {
 	ext := ".jpeg"
-	if imd.format == IMG_FRMT_PNG {
+	if imd.Format == IMG_FRMT_PNG {
 		ext = ".png"
 	}
-	if imd.rect != nil {
-		return fmt.Sprint(imd.prefix, "_", imd.camId, "_", imd.frameId, "_",
-			imd.rect.Min.X, "-", imd.rect.Min.Y, "-", imd.rect.Max.X, "-", imd.rect.Max.Y, ext)
+	if imd.Rect != nil {
+		return fmt.Sprint(imd.Prefix, "_", imd.CamId, "_", imd.FrameId, "_",
+			imd.Rect.Min.X, "-", imd.Rect.Min.Y, "-", imd.Rect.Max.X, "-", imd.Rect.Max.Y, ext)
 	}
-	return fmt.Sprint(imd.prefix, "_", imd.camId, "_", imd.frameId, ext)
+	return fmt.Sprint(imd.Prefix, "_", imd.CamId, "_", imd.FrameId, ext)
 }
 
-func (imd *img_desc) String() string {
-	return fmt.Sprint("ImageDesc:{Prefix=", imd.prefix, ", CamId=", imd.camId, ", FrameId=", imd.frameId, ", Rect=", imd.rect, ", Size=", imd.size, ", Format=", imd.format, "}")
+func (imd *ImgDesc) String() string {
+	return fmt.Sprint("ImageDesc:{Prefix=", imd.Prefix, ", CamId=", imd.CamId, ", FrameId=", imd.FrameId, ", Rect=", imd.Rect, ", Size=", imd.Size, ", Format=", imd.Format, "}")
 }
 
-func (imd *img_desc) getPossibleIDs() []string {
+func (imd *ImgDesc) getPossibleIDs() []string {
 	res := make([]string, len(sizeCodes))
 	for i, sc := range sizeCodes {
 		res[i] = imd.getStoreIdForSize(sc)
@@ -149,15 +149,15 @@ func (imd *img_desc) getPossibleIDs() []string {
 	return res
 }
 
-func (imd *img_desc) getStoreId() string {
+func (imd *ImgDesc) getStoreId() string {
 	imd.check()
-	return imd.getStoreIdForSize(imd.size)
+	return imd.getStoreIdForSize(imd.Size)
 }
 
-func (imd *img_desc) getStoreIdForSize(size byte) string {
-	if imd.rect != nil {
-		return fmt.Sprintf("%s_%x_%x_%d-%d-%d-%d_%c%c%x", imd.prefix, imd.camId, imd.frameId,
-			imd.rect.Min.X, imd.rect.Min.Y, imd.rect.Max.X, imd.rect.Max.Y, imd.format, size, imd.frameId&255)
+func (imd *ImgDesc) getStoreIdForSize(size byte) string {
+	if imd.Rect != nil {
+		return fmt.Sprintf("%s_%x_%x_%d-%d-%d-%d_%c%c%x", imd.Prefix, imd.CamId, imd.FrameId,
+			imd.Rect.Min.X, imd.Rect.Min.Y, imd.Rect.Max.X, imd.Rect.Max.Y, imd.Format, size, imd.FrameId&255)
 	}
-	return fmt.Sprintf("%s_%x_%x_%c%c%x", imd.prefix, imd.camId, imd.frameId, imd.format, size, imd.frameId&255)
+	return fmt.Sprintf("%s_%x_%x_%c%c%x", imd.Prefix, imd.CamId, imd.FrameId, imd.Format, size, imd.FrameId&255)
 }

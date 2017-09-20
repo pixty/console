@@ -20,8 +20,8 @@ import (
 	"github.com/pixty/console/service"
 	"github.com/pixty/console/service/auth"
 	"github.com/pixty/console/service/email"
+	"github.com/pixty/console/service/image"
 	"github.com/pixty/console/service/scene"
-	"github.com/pixty/console/service/storage"
 	"golang.org/x/net/context"
 	"gopkg.in/tylerb/graceful.v1"
 )
@@ -29,7 +29,7 @@ import (
 type api struct {
 	ge           *gin.Engine
 	Config       *common.ConsoleConfig  `inject:""`
-	BlobStorage  storage.BlobStorage    `inject:""`
+	ImageService *image.ImageService    `inject:""`
 	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
 	Persister    model.Persister        `inject:"persister"`
 	MainCtx      context.Context        `inject:"mainCtx"`
@@ -885,7 +885,7 @@ func (a *api) h_POST_cameras_camId_newkey(c *gin.Context) {
 }
 
 // GET /images/:imgName
-// the image name is encoded like <id>[_l_t_r_b].png
+// the image name is encoded like <id>[_l_t_r_b].jpeg
 //
 // so the size part can be missed. Valid names are:
 // asbasdfasdf-234.png	 - no region
@@ -895,23 +895,15 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 	imgName := c.Param("imgName")
 	a.logger.Debug("GET /images/", imgName)
 
-	imgId, err := common.ImgParseFileNameNotDeep(imgName)
+	rdr, err := a.ImageService.GetImageByFileName(imgName, 0, 0)
 	if a.errorResponse(c, err) {
 		return
 	}
 
 	w := c.Writer
-	rd, bm := a.BlobStorage.Read(imgId)
-	if bm == nil {
-		a.logger.Debug("Could not find image with id=", imgId, ", err=", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
 	r := c.Request
-	fn := common.ImgMakeFileName(imgId, nil)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+fn+"\"")
-	http.ServeContent(w, r, fn, bm.Timestamp, rd.(io.ReadSeeker))
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+imgName+"\"")
+	http.ServeContent(w, r, imgName, time.Now(), rdr.(io.ReadSeeker))
 }
 
 // ================================ Helpers ==================================
@@ -1098,7 +1090,7 @@ func (a *api) imgURL(imgId string) string {
 	if imgId == "" {
 		return ""
 	}
-	return a.Config.ImgsPrefix + common.ImgMakeFileName(imgId, nil)
+	return a.Config.ImgsPrefix + imgId
 }
 
 func (a *api) mcams2cams(mcams []*model.Camera) []*Camera {
@@ -1204,11 +1196,7 @@ func (a *api) person2mperson(p *Person) (*model.Person, error) {
 	ps := new(model.Person)
 	ps.Id = p.Id
 	if p.AvatarUrl != "" {
-		id, err := common.ImgParseFileNameNotDeep(p.AvatarUrl)
-		if err != nil {
-			return nil, err
-		}
-		ps.PictureId = id
+		ps.PictureId = p.AvatarUrl
 	}
 	ps.ProfileId = ptr2int64(p.ProfileId, -1)
 	ps.CamId = ptr2int64(p.CamId, -1)
@@ -1396,11 +1384,7 @@ func (a *api) profile2mprofile(p *Profile) (*model.Profile, error) {
 	prf.KeyVals = p.MappedFields
 	avtUrl := ptr2string(p.AvatarUrl, "")
 	if avtUrl != "" {
-		id, err := common.ImgParseFileNameNotDeep(avtUrl)
-		if err != nil {
-			return nil, err
-		}
-		prf.PictureId = id
+		prf.PictureId = avtUrl
 	}
 	prf.Meta = a.prfAttrbs2prfMetas(p.Attributes)
 	return prf, nil

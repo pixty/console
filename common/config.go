@@ -80,7 +80,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.HttpPort = 8080
 	cc.GrpcFPCPPort = 50051
 	cc.GrpcFPCPSessCapacity = 10000
-	cc.MysqlDatasource = "pixty@/pixty?charset=utf8"
+	cc.MysqlDatasource = "pixty@/pixty?charset=utf8mb4"
 	cc.LbsDir = "/opt/pixty/store"
 	cc.LbsMaxSize = "20G"
 	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"

@@ -9,7 +9,7 @@ import (
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/model"
 	"github.com/pixty/console/service/auth"
-	"github.com/pixty/console/service/storage"
+	"github.com/pixty/console/service/image"
 )
 
 type (
@@ -71,9 +71,9 @@ type (
 	}
 
 	dta_controller struct {
-		Persister   model.Persister     `inject:"persister"`
-		BlobStorage storage.BlobStorage `inject:""`
-		logger      log4g.Logger
+		Persister    model.Persister     `inject:"persister"`
+		ImageService *image.ImageService `inject:""`
+		logger       log4g.Logger
 	}
 )
 
@@ -336,9 +336,10 @@ func (dc *dta_controller) InsertProfile(prf *model.Profile) (int64, error) {
 		return -1, err
 	}
 
-	if prf.PictureId != "" && dc.BlobStorage.ReadMeta(prf.PictureId) == nil {
+	err = dc.ImageService.IsValidPic(prf.PictureId)
+	if prf.PictureId != "" && err != nil {
 		dc.logger.Warn("Inserting profile with unknown pictureId=", prf.PictureId)
-		return -1, common.NewError(common.ERR_NOT_FOUND, "There is no picture with id="+prf.PictureId)
+		return -1, err
 	}
 
 	err = mpp.Begin()
@@ -562,10 +563,12 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 	}
 
 	// Check imageId
-	if mp.PictureId != "" && dc.BlobStorage.ReadMeta(mp.PictureId) == nil {
+	err = dc.ImageService.IsValidPic(mp.PictureId)
+	if mp.PictureId != "" && err != nil {
 		dc.logger.Warn("UpdatePerson(): Unknown pictureId=", mp.PictureId)
-		return common.NewError(common.ERR_NOT_FOUND, "There is no picture with id="+mp.PictureId)
+		return err
 	}
+
 	p, err := pp.GetPersonById(mp.Id)
 	if err != nil {
 		return err

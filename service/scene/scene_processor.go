@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"container/list"
 	"image"
-	"image/jpeg"
-	"image/png"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/jrivets/gorivets"
-	"github.com/pixty/console/service/storage"
+	imageSrv "github.com/pixty/console/service/image"
 
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
@@ -21,12 +21,12 @@ import (
 
 type (
 	SceneProcessor struct {
-		Persister   model.Persister       `inject:"persister"`
-		BlobStorage storage.BlobStorage   `inject:""`
-		MainCtx     context.Context       `inject:"mainCtx"`
-		CConfig     *common.ConsoleConfig `inject:""`
-		logger      log4g.Logger
-		cpCache     *cam_pictures_cache
+		Persister    model.Persister        `inject:"persister"`
+		MainCtx      context.Context        `inject:"mainCtx"`
+		CConfig      *common.ConsoleConfig  `inject:""`
+		ImageService *imageSrv.ImageService `inject:""`
+		logger       log4g.Logger
+		cpCache      *cam_pictures_cache
 		// Cutting faces border size
 		border int
 	}
@@ -71,7 +71,7 @@ func (sp *SceneProcessor) DiPhase() int {
 
 func (sp *SceneProcessor) DiInit() error {
 	sp.logger.Info("DiInit()")
-	sp.BlobStorage.DeleteAllWithPrefix(common.IMG_TMP_CAM_PREFIX)
+	sp.ImageService.DeleteAllTmpFiles()
 
 	go func() {
 		sleepTime := time.Duration(sp.CConfig.ImgsTmpTTLSec) * time.Second
@@ -79,7 +79,7 @@ func (sp *SceneProcessor) DiInit() error {
 		for {
 			select {
 			case <-time.After(sleepTime):
-				sp.cpCache.on_sweep(sp.BlobStorage)
+				sp.cpCache.on_sweep(sp.ImageService)
 			case <-sp.MainCtx.Done():
 				sp.logger.Info("Shutting down cleaning temporary images loop")
 				return
@@ -99,7 +99,31 @@ func (sp *SceneProcessor) DiShutdown() {
 func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 	sp.logger.Debug("Got new scene from camId=", camId, " with ", scene.Persons, " persons on the scene")
 
-	if scene.Faces != nil && len(scene.Faces) > 0 {
+	if scene == nil || scene.Frame == nil {
+		sp.logger.Error("Got wrong Scene packet scene of the frame is nil ", scene)
+		return common.NewError(common.ERR_INVALID_VAL, "Wrong packet")
+	}
+
+	frameId, err := strconv.ParseInt(scene.Frame.Id, 10, 64)
+	if err != nil {
+		sp.logger.Error("Got wrong Scene packet: cannot transform frameId to int err=", err)
+		return err
+	}
+
+	pfx := imageSrv.PFX_TEMP
+	if len(scene.Faces) > 0 {
+		pfx = imageSrv.PFX_PERM
+	}
+
+	imgFrameFN, err := sp.savePictures(pfx, camId, frameId, nil, scene.Frame.Pictures)
+	if err != nil {
+		sp.logger.Warn("Could not save frame pictures err=", err)
+		return nil
+	} else {
+		sp.cpCache.set_cam_image(camId, imgFrameFN)
+	}
+
+	if len(scene.Faces) > 0 {
 		faces := make([]*model.Face, len(scene.Faces))
 		for i, f := range scene.Faces {
 			var err error
@@ -111,24 +135,24 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 			}
 			faces[i].CapturedAt = scene.Frame.Timestamp
 			faces[i].SceneId = scene.Id
-		}
 
-		err := sp.saveFaceImages(camId, scene.Frame, faces)
-		if err != nil {
-			sp.logger.Warn("Got the error while saving images: err=", err, ", ignoring the scene :(")
-			return nil
+			mr := faces[i].Rect
+			r := image.Rect(mr.LeftTop.X, mr.LeftTop.Y, mr.RightBottom.X, mr.RightBottom.Y)
+
+			// save face pics
+			imgFn, err := sp.savePictures(pfx, camId, frameId, &r, f.Pictures)
+			if err != nil {
+				sp.logger.Warn("Could not save a face pictures err=", err)
+				return nil
+			}
+			faces[i].ImageId = imgFrameFN
+			faces[i].FaceImageId = imgFn
 		}
 
 		// Looks good now, trying to store the data to DB
 		err = sp.persistSceneFaces(camId, faces)
 		if err != nil {
 			sp.logger.Warn("Got the error while saving faces(", len(faces), ") to DB: err=", err, ", ignoring the scene :(")
-		}
-	} else {
-		imgId := common.ImgMakeTmpCamId(camId, common.Timestamp(scene.Frame.Timestamp))
-		err := sp.saveFrameImage(imgId, camId, scene.Frame)
-		if err != nil {
-			sp.logger.Warn("Could not save the frame image into a temporary file, err=", err)
 		}
 	}
 
@@ -289,74 +313,29 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 	return nil
 }
 
-// Cut faces and store them images. Also populates the following fields
-// - ImageId
-// - FaceImageId
-// for the faces array provided
-func (sp *SceneProcessor) saveFaceImages(camId int64, frame *fpcp.Frame, faces []*model.Face) error {
-	if frame.Data == nil || len(frame.Data) == 0 {
-		sp.logger.Warn("saveFaceImages(): No frame data for camId=", camId)
-		return common.NewError(common.ERR_INVALID_VAL, "Expecting image in the frame, but not found it.")
-	}
-
-	var img image.Image
-	var err error
-	if frame.Format == fpcp.Frame_PNG {
-		img, err = png.Decode(bytes.NewReader(frame.Data))
-	} else {
-		img, err = jpeg.Decode(bytes.NewReader(frame.Data))
-	}
-	if err != nil {
-		sp.logger.Warn("Cannot decode image with Frame_Format=", frame.Format, " err=", err)
-		return err
-	}
-
-	// making Image Id here, and store the frame
-	imgId := common.ImgMakeCamId(camId, common.Timestamp(frame.Timestamp))
-	imgIdRef := imgId
-	err = sp.saveFrameImage(imgId, camId, frame)
-	if err != nil {
-		sp.logger.Error("Could not write the frame image to imgService, err=", err)
-		imgIdRef = ""
-	}
-
-	var rect image.Rectangle
-	for _, face := range faces {
-		// Update reference to frame
-		face.ImageId = string(imgIdRef)
-
-		// Cutting png image
-		toImgRect(&face.Rect, &rect, frame.Size, sp.border)
-		si := img.(interface {
-			SubImage(r image.Rectangle) image.Image
-		}).SubImage(rect)
-
-		bb := bytes.NewBuffer([]byte{})
-		err = png.Encode(bb, si)
+func (sp *SceneProcessor) savePictures(pfx string, camId, frameId int64, rect *image.Rectangle, pics []*fpcp.Picture) (string, error) {
+	imDesc := &imageSrv.ImgDesc{Prefix: pfx, CamId: camId, FrameId: frameId, Rect: rect}
+	res := ""
+	for _, pic := range pics {
+		var err error
+		res, err = sp.savePicture(imDesc, pic)
 		if err != nil {
-			sp.logger.Warn("Cannot encode png image err=", err)
-			continue
+			sp.logger.Warn("could not save file by descriptor ", imDesc)
+			sp.ImageService.DeleteImageByFile(res)
+			return "", err
 		}
-
-		// Store the face to image store
-		bm := &storage.BlobMeta{Id: common.ImgMakeId(imgId, &rect), Timestamp: time.Now()}
-		_, err = sp.BlobStorage.Add(bytes.NewReader(bb.Bytes()), bm)
-		if err != nil {
-			sp.logger.Error("Could not write image to imgService, err=", err)
-			continue
-		}
-		face.FaceImageId = bm.Id
 	}
-	return nil
+	return res, nil
 }
 
-func (sp *SceneProcessor) saveFrameImage(imgId string, camId int64, frame *fpcp.Frame) error {
-	bm := &storage.BlobMeta{Id: imgId, Timestamp: time.Now()}
-	_, err := sp.BlobStorage.Add(bytes.NewReader(frame.Data), bm)
-	if err == nil {
-		sp.cpCache.set_cam_image(camId, imgId)
+func (sp *SceneProcessor) savePicture(imDesc *imageSrv.ImgDesc, pic *fpcp.Picture) (string, error) {
+	imDesc.Size = byte(pic.SizeCode)
+	if pic.Format == fpcp.Picture_JPG {
+		imDesc.Format = imageSrv.IMG_FRMT_JPEG
+	} else {
+		imDesc.Format = imageSrv.IMG_FRMT_PNG
 	}
-	return err
+	return sp.ImageService.StoreImage(imDesc, bytes.NewReader(pic.Data))
 }
 
 // creates new face and fills it partially by populating:
@@ -378,38 +357,38 @@ func (sp *SceneProcessor) toFace(face *fpcp.Face) (*model.Face, error) {
 	return f, nil
 }
 
-func (cpc *cam_pictures_cache) set_cam_image(camId int64, imgId string) {
+func (cpc *cam_pictures_cache) set_cam_image(camId int64, imgFile string) {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
-	cpc.camPics.Add(camId, imgId, 1)
+	cpc.camPics.Add(camId, imgFile, 1)
 }
 
 func (cpc *cam_pictures_cache) get_cam_image(camId int64) string {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
-	if imgId, ok := cpc.camPics.Peek(camId); ok {
-		return imgId.(string)
+	if imgFile, ok := cpc.camPics.Peek(camId); ok {
+		return imgFile.(string)
 	}
 	return ""
 }
 
 func (cpc *cam_pictures_cache) on_delete(k, v interface{}) {
-	if common.ImgIsTmpCamId(v.(string)) {
+	if strings.HasPrefix(v.(string), imageSrv.PFX_TEMP) {
 		cpc.deleted.PushBack(v)
 	}
 }
 
-func (cpc *cam_pictures_cache) on_sweep(bs storage.BlobStorage) {
+func (cpc *cam_pictures_cache) on_sweep(imgS *imageSrv.ImageService) {
 	cpc.lock.Lock()
 	defer cpc.lock.Unlock()
 
 	cpc.camPics.Sweep()
 
 	for cpc.dead.Len() > 0 {
-		imgId := cpc.dead.Remove(cpc.dead.Front()).(string)
-		bs.Delete(imgId)
+		imgFile := cpc.dead.Remove(cpc.dead.Front()).(string)
+		imgS.DeleteImageByFile(imgFile)
 	}
 
 	// swap lists

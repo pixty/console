@@ -110,19 +110,19 @@ CREATE TABLE IF NOT EXISTS `profile` (
 CREATE TABLE IF NOT EXISTS `profile_meta` (
 	`profile_id`                 BIGINT(20)      NOT NULL,
 	`field_id`                   BIGINT(20)      NOT NULL,
-	`value`                      VARCHAR(16535)  NOT NULL, 
+	`value`                      VARCHAR(16000)  NOT NULL, 
 	UNIQUE `profile_id_field_id_idx` USING BTREE (profile_id, field_id),
 	FOREIGN KEY (`field_id`) REFERENCES field_info(id) ON DELETE CASCADE,
 	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
-) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile_kvs` (
 	`profile_id`                 BIGINT(20)      NOT NULL,
 	`key`                        VARCHAR(100)    NOT NULL,
-	`value`                      VARCHAR(16535)  NOT NULL, 
+	`value`                      VARCHAR(16000)  NOT NULL, 
 	UNIQUE `profile_id_key_idx` USING BTREE (profile_id, `key`),
 	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
-) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 #After creation for test camera
 #insert into organization(id, name) values(1, 'pixty');

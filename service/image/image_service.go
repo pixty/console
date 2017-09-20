@@ -36,13 +36,13 @@ func NewImageService() *ImageService {
 // Returns the image by the desired width or height. If the desired dimensions
 // width(w) and height(h) are less or equal 0, then the default size will be used
 func (ims *ImageService) GetImageByFileName(fileName string, w, h int) (io.ReadCloser, error) {
-	var imd img_desc
-	err := imd.parseFileName(fileName)
+	var imd ImgDesc
+	err := imd.ParseFileName(fileName)
 	if err != nil {
 		return nil, err
 	}
-	imd.format = IMG_FRMT_JPEG
-	imd.size = ims.getSizeCode(w, h)
+	imd.Format = IMG_FRMT_JPEG
+	imd.Size = ims.getSizeCode(w, h)
 
 	for {
 		id := imd.getStoreId()
@@ -52,22 +52,52 @@ func (ims *ImageService) GetImageByFileName(fileName string, w, h int) (io.ReadC
 			return rdr, nil
 		}
 
-		if imd.size == IMG_SIZE_ORIGINAL {
+		if imd.Size == IMG_SIZE_ORIGINAL {
 			return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find image "+fileName)
 		}
-		imd.size = nextSizeCode(imd.size)
+		imd.Size = nextSizeCode(imd.Size)
 	}
 }
 
+func (ims *ImageService) DeleteAllTmpFiles() {
+	ims.BlobStorage.DeleteAllWithPrefix(PFX_TEMP)
+}
+
 func (ims *ImageService) DeleteImageByFile(fileName string) error {
-	var imd img_desc
-	err := imd.parseFileName(fileName)
+	var imd ImgDesc
+	err := imd.ParseFileName(fileName)
 	if err != nil {
 		return err
 	}
 	return ims.BlobStorage.Delete(imd.getPossibleIDs()...)
 }
 
+// Stores the image according to provided, returns the file name for the file
+func (ims *ImageService) StoreImage(imgDesc *ImgDesc, reader io.Reader) (string, error) {
+	bm := &storage.BlobMeta{Id: imgDesc.getStoreId(), Timestamp: time.Now()}
+	_, err := ims.BlobStorage.Add(reader, bm)
+	if err != nil {
+		ims.logger.Error("Could not write data to data store, err=", err)
+		return "", err
+	}
+	return imgDesc.getFileName(), nil
+}
+
+func (ims *ImageService) IsValidPic(imgFn string) error {
+	var id ImgDesc
+	err := id.ParseFileName(imgFn)
+	if err != nil {
+		return err
+	}
+
+	bm := ims.BlobStorage.ReadMeta(id.getStoreId())
+	if bm == nil {
+		return common.NewError(common.ERR_NOT_FOUND, "Could not find image file for "+imgFn)
+	}
+	return nil
+}
+
+// DEPRECATED. Left for future.
 // Stores the frame params:
 // camId - the camera where the image comes from
 // frameId - the original frame Id
@@ -75,7 +105,7 @@ func (ims *ImageService) DeleteImageByFile(fileName string) error {
 // rects - rectangles on the original frame that should be turned into a separated pictures as well
 //
 // Returns - list of file-names the frame and rectangles can be selected by
-func (ims *ImageService) StoreNewFrame(camId, frameId int64, img image.Image, rects []image.Rectangle) ([]string, error) {
+func (ims *ImageService) storeNewFrame(camId, frameId int64, img image.Image, rects []image.Rectangle) ([]string, error) {
 	res := make([]string, 0, len(rects)+1)
 
 	prefix := PFX_TEMP
@@ -86,7 +116,7 @@ func (ims *ImageService) StoreNewFrame(camId, frameId int64, img image.Image, re
 	// Reduce original size if needed
 	sImg, _ := ims.scaleImage(ims.dfltSize, img)
 	// but save it like an original
-	iDsc := &img_desc{prefix, camId, frameId, nil, IMG_SIZE_ORIGINAL, IMG_FRMT_JPEG}
+	iDsc := &ImgDesc{prefix, camId, frameId, nil, IMG_SIZE_ORIGINAL, IMG_FRMT_JPEG}
 	err := ims.storeImage(iDsc, sImg)
 	if err != nil {
 		return res, err
@@ -102,8 +132,8 @@ func (ims *ImageService) StoreNewFrame(camId, frameId int64, img image.Image, re
 		// scale to default
 		sImg, _ := ims.scaleImage(ims.dfltSize, si)
 		// but save it like an original
-		iDsc.size = IMG_SIZE_ORIGINAL
-		iDsc.rect = &rect
+		iDsc.Size = IMG_SIZE_ORIGINAL
+		iDsc.Rect = &rect
 		err := ims.storeImage(iDsc, sImg)
 		if err != nil {
 			return res, err
@@ -112,7 +142,7 @@ func (ims *ImageService) StoreNewFrame(camId, frameId int64, img image.Image, re
 
 		for i := sizeCodesMap[ims.dfltSize] - 1; i >= 0; i-- {
 			sc := sizeCodes[i]
-			iDsc.size = sc
+			iDsc.Size = sc
 			sImg, ok := ims.scaleImage(sc, img)
 			if ok {
 				err = ims.storeImage(iDsc, sImg)
@@ -173,10 +203,10 @@ func (ims *ImageService) scaleImage(size byte, img image.Image) (image.Image, bo
 
 // Stores the provided image by the descriptor. If the operation
 // is successful then nil will be returned
-func (ims *ImageService) storeImage(iDsc *img_desc, img image.Image) error {
+func (ims *ImageService) storeImage(iDsc *ImgDesc, img image.Image) error {
 	bb := bytes.NewBuffer([]byte{})
 	var err error
-	if iDsc.format == IMG_FRMT_JPEG {
+	if iDsc.Format == IMG_FRMT_JPEG {
 		err = jpeg.Encode(bb, img, nil)
 	} else {
 		err = png.Encode(bb, img)
@@ -225,11 +255,11 @@ func nextSizeCode(c byte) byte {
 }
 
 func getSizeCodeByHeight(h int) byte {
-	if h <= 100 {
-		return IMG_SIZE_160x100
+	if h <= 120 {
+		return IMG_SIZE_160x120
 	}
-	if h <= 200 {
-		return IMG_SIZE_320x200
+	if h <= 240 {
+		return IMG_SIZE_320x240
 	}
 	if h <= 480 {
 		return IMG_SIZE_640x480
@@ -242,10 +272,10 @@ func getSizeCodeByHeight(h int) byte {
 
 func getSizeCodeByWidth(w int) byte {
 	if w <= 160 {
-		return IMG_SIZE_160x100
+		return IMG_SIZE_160x120
 	}
 	if w <= 320 {
-		return IMG_SIZE_320x200
+		return IMG_SIZE_320x240
 	}
 	if w <= 640 {
 		return IMG_SIZE_640x480
@@ -259,10 +289,10 @@ func getSizeCodeByWidth(w int) byte {
 // returns dime
 func getDimensionsBySizeCode(sc byte) (int, int) {
 	switch sc {
-	case IMG_SIZE_160x100:
-		return 160, 100
-	case IMG_SIZE_320x200:
-		return 320, 200
+	case IMG_SIZE_160x120:
+		return 160, 120
+	case IMG_SIZE_320x240:
+		return 320, 240
 	case IMG_SIZE_640x480:
 		return 640, 480
 	case IMG_SIZE_800x600:
