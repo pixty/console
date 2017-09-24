@@ -593,8 +593,72 @@ func (mpp *msql_part_tx) FindFaces(fQuery *FacesQuery) ([]*Face, error) {
 	return res, nil
 }
 
+func (mpp *msql_part_tx) DeleteFaces(fcIds []int64) error {
+	if len(fcIds) == 0 {
+		return nil
+	}
+
+	q := "DELETE FROM face WHERE id IN("
+	whereParams := []interface{}{}
+	for i, fcid := range fcIds {
+		if i > 0 {
+			q += ", ?"
+		} else {
+			q += "?"
+		}
+		whereParams = append(whereParams, fcid)
+	}
+	q += ")"
+
+	mpp.logger.Debug("DeleteFaces(): q=", q, " ", fcIds)
+	_, err := mpp.executor().Exec(q, whereParams...)
+	return err
+}
+
+func (mpp *msql_part_tx) FindZeroRefPics(limit int) ([]*Picture, error) {
+	rows, err := mpp.executor().Query("SELECT id, refs FROM picture WHERE refs=0 LIMIT ?", limit)
+	if err != nil {
+		mpp.logger.Warn("FindZeroRefPics(): coule not run the query, err=", err, ", limit=", limit)
+		return nil, err
+	}
+	defer rows.Close()
+	res := []*Picture{}
+	for rows.Next() {
+		p := new(Picture)
+		err = rows.Scan(&p.Id, &p.Refs)
+		if err != nil {
+			mpp.logger.Warn("FindZeroRefPics(): coule not scan picture, err=", err)
+			return nil, err
+		}
+		res = append(res, p)
+	}
+	return res, nil
+}
+
+func (mpp *msql_part_tx) DeletePics(pics []*Picture) error {
+	if len(pics) == 0 {
+		mpp.logger.Debug("DeletePics(): nothing to delete.")
+		return nil
+	}
+
+	q := "DELETE FROM picture WHERE id IN("
+	whereParams := []interface{}{}
+	for i, p := range pics {
+		if i > 0 {
+			q += ", ?"
+		} else {
+			q += "?"
+		}
+		whereParams = append(whereParams, p.Id)
+	}
+	q += ")"
+	mpp.logger.Debug("DeletePics(): q=", q, " params=", whereParams)
+	_, err := mpp.executor().Exec(q, whereParams...)
+	return err
+}
+
 func (mpp *msql_part_tx) GetPersonById(pId string) (*Person, error) {
-	rows, err := mpp.executor().Query("SELECT cam_id, last_seen, profile_id, picture_id, match_group FROM person WHERE id=?", pId)
+	rows, err := mpp.executor().Query("SELECT cam_id, created_at, last_seen, profile_id, picture_id, match_group FROM person WHERE id=?", pId)
 	if err != nil {
 		mpp.logger.Warn("GetPersonById(): could read by id=", pId, ", err=", err)
 		return nil, err
@@ -604,7 +668,7 @@ func (mpp *msql_part_tx) GetPersonById(pId string) (*Person, error) {
 	if rows.Next() {
 		p := new(Person)
 		p.Id = pId
-		err := rows.Scan(&p.CamId, &p.LastSeenAt, &p.ProfileId, &p.PictureId, &p.MatchGroup)
+		err := rows.Scan(&p.CamId, &p.CreatedAt, &p.LastSeenAt, &p.ProfileId, &p.PictureId, &p.MatchGroup)
 		if err != nil {
 			mpp.logger.Warn("GetPersonById(): could not scan result err=", err)
 		}
@@ -625,18 +689,33 @@ func (mpp *msql_part_tx) CheckPersonInOrg(pId string, orgId int64) (bool, error)
 
 func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 	mpp.logger.Debug("FindPersons: Requesting faces by ", pQuery)
-	q := "SELECT id, cam_id, last_seen, profile_id, picture_id, match_group FROM person "
+	q := "SELECT p.id, p.cam_id, p.created_at, p.last_seen, p.profile_id, p.picture_id, p.match_group FROM person AS p "
 	whereCond := []string{}
 	whereParams := []interface{}{}
 
-	if pQuery.CamId != 0 {
-		whereCond = append(whereCond, "cam_id=?")
+	if pQuery.CamId > 0 {
+		whereCond = append(whereCond, "p.cam_id=?")
 		whereParams = append(whereParams, pQuery.CamId)
 	}
 
 	if pQuery.MaxLastSeenAt != common.TIMESTAMP_NA {
-		whereCond = append(whereCond, "last_seen <= ?")
+		whereCond = append(whereCond, "p.last_seen <= ?")
 		whereParams = append(whereParams, int64(pQuery.MaxLastSeenAt))
+	}
+
+	if pQuery.MinCreatedAt != nil {
+		whereCond = append(whereCond, "p.created_at >= ?")
+		whereParams = append(whereParams, uint64(*pQuery.MinCreatedAt))
+	}
+
+	if pQuery.MaxCreatedAt != nil {
+		whereCond = append(whereCond, "p.created_at <= ?")
+		whereParams = append(whereParams, uint64(*pQuery.MaxCreatedAt))
+	}
+
+	if pQuery.MinFacesCount > 0 {
+		whereCond = append(whereCond, "(SELECT count(*) FROM face WHERE person_id=p.id) >= ?")
+		whereParams = append(whereParams, uint64(pQuery.MinFacesCount))
 	}
 
 	if pQuery.PersonIds != nil {
@@ -644,7 +723,7 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 			mpp.logger.Debug("FindPersons: empty, but not nil pQuery.PersonIds, returns empty result ")
 			return []*Person{}, nil
 		}
-		inc := "id IN("
+		inc := "p.id IN("
 		for i, pid := range pQuery.PersonIds {
 			if i > 0 {
 				inc += ", ?"
@@ -668,7 +747,14 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 		}
 	}
 
-	q = q + " ORDER BY last_seen DESC"
+	switch pQuery.Order {
+	case PQO_LAST_SEEN_DESC:
+		q = q + " ORDER BY p.last_seen DESC"
+	case PQO_CREATED_AT_ASC:
+		q = q + " ORDER BY p.created_at ASC"
+	default:
+	}
+
 	if pQuery.Limit > 0 {
 		q = q + " LIMIT " + strconv.Itoa(pQuery.Limit)
 	}
@@ -684,7 +770,7 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 	res := make([]*Person, 0, 10)
 	for rows.Next() {
 		p := new(Person)
-		err := rows.Scan(&p.Id, &p.CamId, &p.LastSeenAt, &p.ProfileId, &p.PictureId, &p.MatchGroup)
+		err := rows.Scan(&p.Id, &p.CamId, &p.CreatedAt, &p.LastSeenAt, &p.ProfileId, &p.PictureId, &p.MatchGroup)
 		if err != nil {
 			mpp.logger.Warn("FindPersons(): could not scan result err=", err)
 			return nil, err
@@ -696,8 +782,8 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 }
 
 func (mpp *msql_part_tx) InsertPerson(p *Person) error {
-	_, err := mpp.executor().Exec("INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
-		p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
+	_, err := mpp.executor().Exec("INSERT INTO person(id, cam_id, created_at, last_seen, profile_id, picture_id, match_group) VALUES (?,?,?,?,?,?)",
+		p.Id, p.CamId, p.CreatedAt, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 	if err != nil {
 		mpp.logger.Warn("InsertPerson(): Could not insert new person ", p, ", got the err=", err)
 		return err
@@ -709,14 +795,14 @@ func (mpp *msql_part_tx) InsertPerson(p *Person) error {
 func (mpp *msql_part_tx) InsertPersons(persons []*Person) error {
 	mpp.logger.Debug("Inserting ", len(persons), " persons to DB: ", persons)
 	if len(persons) > 0 {
-		q := "INSERT INTO person(id, cam_id, last_seen, profile_id, picture_id, match_group) VALUES "
+		q := "INSERT INTO person(id, cam_id, created_at, last_seen, profile_id, picture_id, match_group) VALUES "
 		vals := []interface{}{}
 		for i, p := range persons {
 			if i > 0 {
 				q = q + ", "
 			}
-			q = q + "(?,?,?,?,?,?)"
-			vals = append(vals, p.Id, p.CamId, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
+			q = q + "(?,?,?,?,?,?,?)"
+			vals = append(vals, p.Id, p.CamId, p.CreatedAt, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
 		}
 
 		_, err := mpp.executor().Exec(q, vals...)

@@ -106,7 +106,7 @@ func (imd *ImgDesc) ParseFileName(fn string) error {
 	imd.CamId = camId
 	imd.FrameId = frmId
 	imd.Size = 0
-	imd.Format = 0
+	imd.Format = IMG_FRMT_JPEG
 	return nil
 }
 

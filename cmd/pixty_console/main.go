@@ -13,6 +13,7 @@ import (
 	"github.com/pixty/console/service/image"
 	"github.com/pixty/console/service/scene"
 	"github.com/pixty/console/service/storage"
+	"github.com/pixty/console/service/sweeper"
 	"golang.org/x/net/context"
 )
 
@@ -48,8 +49,11 @@ func main() {
 	authService := auth.NewAuthService()
 	sessService := auth.NewInMemSessionService()
 	esender := email.NewEmailSender()
+	faceSweeper := sweeper.NewFacesSweeper()
+	imageSweeper := sweeper.NewImagesSweeper()
 
 	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService, lbs, esender, imgSrvc)
+	injector.RegisterMany(faceSweeper, imageSweeper)
 	injector.RegisterOne(msqlPersist, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.RegisterOne(scnProc, "scnProcessor")

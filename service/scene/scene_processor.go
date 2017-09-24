@@ -172,7 +172,7 @@ func (sp *SceneProcessor) GetTimelineView(camId int64, maxTs common.Timestamp, l
 	}
 	defer pp.Commit()
 
-	persons, err := pp.FindPersons(&model.PersonsQuery{CamId: camId, MaxLastSeenAt: maxTs, Limit: limit})
+	persons, err := pp.FindPersons(&model.PersonsQuery{CamId: camId, MaxLastSeenAt: maxTs, Order: model.PQO_LAST_SEEN_DESC, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -288,10 +288,12 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 	if npc > 0 {
 		sp.logger.Info("Found ", npc, " new person(s) on ", camId, ", will persist them...")
 		newPers := make([]*model.Person, 0, npc)
+		createdAt := common.CurrentTimestamp()
 		for pid, f := range persIdMap {
 			p := new(model.Person)
 			p.Id = pid
 			p.CamId = camId
+			p.CreatedAt = uint64(createdAt)
 			p.LastSeenAt = f.CapturedAt
 			p.PictureId = f.FaceImageId
 			newPers = append(newPers, p)

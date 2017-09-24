@@ -44,6 +44,8 @@ const (
 	ERR_AUTH_REQUIRED               = 5
 	ERR_UNAUTHORIZED                = 6
 
+	MAX_FACES_PER_PERSON = 10
+
 	V128D_SIZE          = 512 // 128 values by 4 bytes each
 	SECRET_KEY_ALPHABET = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnazx_^-()@#$%"
 	SESSION_ALPHABET    = "0123456789QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnazx"

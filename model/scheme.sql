@@ -63,9 +63,18 @@ CREATE TABLE IF NOT EXISTS `field_info` (
 	UNIQUE `org_id_display_name_idx` USING BTREE (org_id, display_name)
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
+CREATE TABLE IF NOT EXISTS `picture` (
+	`id`                  VARCHAR(255) NOT NULL,
+	`refs`                INT NOT NULL DEFAULT 0,
+	PRIMARY KEY (`id`),
+	UNIQUE `id_idx` USING BTREE (id),
+	INDEX `refs_idx` USING BTREE (refs)
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
 CREATE TABLE IF NOT EXISTS `person` (
 	`id`                  VARCHAR(255) NOT NULL,
 	`cam_id`              BIGINT(20)      NOT NULL,
+	`created_at`          BIGINT(20)      NOT NULL,
 	`last_seen`           BIGINT(20)      NOT NULL,
 	`profile_id`          BIGINT(20)      NOT NULL,
 	`picture_id`          VARCHAR(255) NOT NULL,
@@ -73,6 +82,7 @@ CREATE TABLE IF NOT EXISTS `person` (
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `cam_id_idx` USING BTREE (cam_id),
+	INDEX `created_at_idx` USING BTREE (created_at),
 	INDEX `last_seen_idx` USING BTREE (last_seen),
 	INDEX `profile_id_idx` USING BTREE (profile_id),
 	INDEX `match_group_idx` USING BTREE (match_group),
@@ -95,7 +105,7 @@ CREATE TABLE IF NOT EXISTS `face` (
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `person_id_idx` USING BTREE (person_id),
 	INDEX `captured_at_idx` USING BTREE (captured_at),
-	FOREIGN KEY (`person_id`) REFERENCES person(id) ON DELETE CASCADE
+	FOREIGN KEY (`person_id`) REFERENCES person(id) ON DELETE RESTRICT
 ) ENGINE=`InnoDB` AUTO_INCREMENT=1 DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile` (
@@ -123,6 +133,90 @@ CREATE TABLE IF NOT EXISTS `profile_kvs` (
 	UNIQUE `profile_id_key_idx` USING BTREE (profile_id, `key`),
 	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
+
+# Triggers & procedures
+delimiter |
+
+CREATE PROCEDURE proc_inc_picture_ref(IN picture_id VARCHAR(255))
+inc_picture_ref_exit:BEGIN
+  IF picture_id IS NULL OR LENGTH(picture_id) = 0 THEN
+    LEAVE inc_picture_ref_exit;
+  END IF;
+  IF (SELECT id FROM picture WHERE id=picture_id) IS NULL THEN
+    INSERT INTO picture(id, refs) VALUES (picture_id, 1);
+  ELSE
+    UPDATE picture SET refs=refs+1 WHERE id=picture_id;
+  END IF;
+END;
+|
+CREATE PROCEDURE proc_dec_picture_ref(IN picture_id VARCHAR(255))
+BEGIN
+  UPDATE picture SET refs=refs-1 WHERE id=picture_id;
+END;
+|
+CREATE TRIGGER trgr_new_face AFTER INSERT ON face
+FOR EACH ROW BEGIN
+  CALL proc_inc_picture_ref(NEW.image_id);
+  CALL proc_inc_picture_ref(NEW.face_image_id);
+END;
+|
+CREATE TRIGGER trgr_del_face BEFORE DELETE ON face
+FOR EACH ROW BEGIN
+  CALL proc_dec_picture_ref(OLD.image_id);
+  CALL proc_dec_picture_ref(OLD.face_image_id);
+END;
+| 
+CREATE TRIGGER trgr_new_person AFTER INSERT ON person
+FOR EACH ROW BEGIN
+  CALL proc_inc_picture_ref(NEW.picture_id);
+END;
+|
+CREATE TRIGGER trgr_update_person AFTER UPDATE ON person
+FOR EACH ROW BEGIN
+  IF OLD.picture_id <> NEW.picture_id THEN
+    CALL proc_inc_picture_ref(NEW.picture_id);
+	CALL proc_dec_picture_ref(OLD.picture_id);
+  END IF;
+END;
+|
+CREATE TRIGGER trgr_del_person BEFORE DELETE ON person
+FOR EACH ROW BEGIN
+  CALL proc_dec_picture_ref(OLD.picture_id);
+END;
+| 
+CREATE TRIGGER trgr_new_profile AFTER INSERT ON profile
+FOR EACH ROW BEGIN
+  CALL proc_inc_picture_ref(NEW.picture_id);
+END;
+|
+CREATE TRIGGER trgr_update_profile AFTER UPDATE ON profile
+FOR EACH ROW BEGIN
+  IF OLD.picture_id <> NEW.picture_id THEN
+    CALL proc_inc_picture_ref(NEW.picture_id);
+	CALL proc_dec_picture_ref(OLD.picture_id);
+  END IF;
+END;
+|
+CREATE TRIGGER trgr_del_profile BEFORE DELETE ON profile
+FOR EACH ROW BEGIN
+  CALL proc_dec_picture_ref(OLD.picture_id);
+END;
+|
+delimiter ;
+
+
+DROP PROCEDURE IF EXISTS proc_inc_picture_ref;
+DROP PROCEDURE IF EXISTS proc_dec_picture_ref;
+DROP TRIGGER trgr_new_face;
+DROP TRIGGER trgr_del_face;
+DROP TRIGGER trgr_new_person;
+DROP TRIGGER trgr_update_person;
+DROP TRIGGER trgr_del_person;
+DROP TRIGGER trgr_new_profile;
+DROP TRIGGER trgr_update_profile;
+DROP TRIGGER trgr_del_profile;
+
 
 #After creation for test camera
 #insert into organization(id, name) values(1, 'pixty');

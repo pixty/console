@@ -196,10 +196,10 @@ func (lbs *LfsBlobStorage) Delete(objIds ...string) error {
 			continue
 		}
 
-		lbs.logger.Info("Deleting BLOB by id=", objId)
+		lbs.logger.Debug("Deleting BLOB by id=", objId)
 		_, ok := lbs.objects[objId]
 		if !ok {
-			lbs.logger.Warn("Could not find BLOB by id=", objId)
+			lbs.logger.Debug("Could not find BLOB by id=", objId)
 			continue
 		}
 

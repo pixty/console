@@ -59,6 +59,12 @@ type ConsoleConfig struct {
 	EmailSmtpUser   string
 	EmailSmtpPasswd string
 
+	// Sweepers
+	SweepFacesToSec            int // pause between shole cycles around sweeping faces
+	SweepImagesToSec           int // pause between whole cycles
+	SweepImagesPackSize        int // pack size (hom many records served at a time
+	SweepImagesPackSizePauseMs int // pause between packs in ms, could be 0
+
 	logger log4g.Logger
 }
 
@@ -66,7 +72,10 @@ func (cc *ConsoleConfig) NiceString() string {
 	return fmt.Sprint("{\n\tLogConfigFN=", cc.LogConfigFN, ",\n\tHttpPort=", cc.HttpPort, ",\n\tHttpDebugMode=", cc.HttpDebugMode,
 		",\n\tGrpcFPCPPort=", cc.GrpcFPCPPort, ",\n\tGrpcFPCPSessCapacity=", cc.GrpcFPCPSessCapacity, ",\n\tDebugMode=",
 		cc.DebugMode, ",\n\tMysqlDatasource=", cc.MysqlDatasource, ",\n\tLbsDir=", cc.LbsDir, ",\n\tLbsMaxSize=", cc.LbsMaxSize,
-		"(", cc.GetLbsMaxSizeBytes(), "bytes)", ",\n\tImgsPrefix=", cc.ImgsPrefix, ",\n\tImgsTmpTTLSec=", cc.ImgsTmpTTLSec, "\n}")
+		"(", cc.GetLbsMaxSizeBytes(), "bytes)", ",\n\tImgsPrefix=", cc.ImgsPrefix, ",\n\tImgsTmpTTLSec=", cc.ImgsTmpTTLSec,
+		",\n\tSweepFacesToSec=", cc.SweepFacesToSec, ",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize,
+		",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize, ",\n\tSweepImagesPackSizePauseMs=", cc.SweepImagesPackSizePauseMs,
+		"\n}")
 }
 
 func (cc *ConsoleConfig) String() string {
@@ -89,6 +98,10 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.AuthSessionTOSec = 300            // kick it out in 5 minutes
 	cc.EmailSmtpServer = "mail.name.com" // mail.name.com:465?
 	cc.EmailSmtpUser = "support@pixty.io"
+	cc.SweepFacesToSec = 60
+	cc.SweepImagesToSec = 60
+	cc.SweepImagesPackSize = 1000
+	cc.SweepImagesPackSizePauseMs = 5
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }
@@ -132,6 +145,18 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	}
 	if cc1.AuthSessionTOSec > 0 {
 		cc.AuthSessionTOSec = cc1.AuthSessionTOSec
+	}
+	if cc1.SweepFacesToSec > 0 {
+		cc.SweepFacesToSec = cc1.SweepFacesToSec
+	}
+	if cc1.SweepImagesPackSize > 0 {
+		cc.SweepImagesPackSize = cc1.SweepImagesPackSize
+	}
+	if cc1.SweepImagesToSec > 0 {
+		cc.SweepImagesToSec = cc1.SweepFacesToSec
+	}
+	if cc1.SweepImagesPackSizePauseMs > 0 {
+		cc.SweepImagesPackSizePauseMs = cc1.SweepImagesPackSizePauseMs
 	}
 }
 
