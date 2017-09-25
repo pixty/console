@@ -27,6 +27,7 @@ type (
 		ImageService *imageSrv.ImageService `inject:""`
 		logger       log4g.Logger
 		cpCache      *cam_pictures_cache
+		persCache    *persons_cache
 		// Cutting faces border size
 		border int
 	}
@@ -60,6 +61,8 @@ func NewSceneProcessor() *SceneProcessor {
 	sp.cpCache.camPics = gorivets.NewTtlLRU(1000, time.Minute, sp.cpCache.on_delete)
 	sp.cpCache.deleted = list.New()
 	sp.cpCache.dead = list.New()
+	// keep a person information for 5 minutes to reduce the number of faces to be stored
+	sp.persCache = new_persons_cache(time.Minute * time.Duration(5))
 	return sp
 }
 
@@ -110,8 +113,31 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 		return err
 	}
 
-	pfx := imageSrv.PFX_TEMP
+	// Filtering faces through the cache. Some faces can be rejected due to the cache rules
+	f2f := make(map[int]*model.Face)
 	if len(scene.Faces) > 0 {
+		for i, f := range scene.Faces {
+			// toFace sets PersonId, Rect and V128D
+			face, err := sp.toFace(f)
+			if err != nil {
+				sp.logger.Warn("Error while parsing face for camId=", camId, ", err=", err)
+				return err
+			}
+			face.CapturedAt = scene.Frame.Timestamp
+			face.SceneId = scene.Id
+
+			// check whether we have to persist the face?
+			if sp.persCache.should_be_added(face) {
+				f2f[i] = face
+			} else {
+				sp.logger.Debug("Drop the face for personId=", face.PersonId, ", by the cache rules.")
+			}
+		}
+	}
+
+	// Now we checks should we store the frame picture permanently or just temporary
+	pfx := imageSrv.PFX_TEMP
+	if len(f2f) > 0 {
 		pfx = imageSrv.PFX_PERM
 	}
 
@@ -119,24 +145,19 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 	if err != nil {
 		sp.logger.Warn("Could not save frame pictures err=", err)
 		return nil
-	} else {
-		sp.cpCache.set_cam_image(camId, imgFrameFN)
 	}
+	sp.cpCache.set_cam_image(camId, imgFrameFN)
 
-	if len(scene.Faces) > 0 {
-		faces := make([]*model.Face, len(scene.Faces))
+	if len(f2f) > 0 {
+		faces := make([]*model.Face, 0, len(f2f))
 		for i, f := range scene.Faces {
-			var err error
-			// toFace put PersonId, Rect and V128D
-			faces[i], err = sp.toFace(f)
-			if err != nil {
-				sp.logger.Warn("Error while parsing face for camId=", camId, ", err=", err)
-				return err
+			face, ok := f2f[i]
+			if !ok {
+				continue
 			}
-			faces[i].CapturedAt = scene.Frame.Timestamp
-			faces[i].SceneId = scene.Id
 
-			mr := faces[i].Rect
+			faces = append(faces, face)
+			mr := face.Rect
 			r := image.Rect(mr.LeftTop.X, mr.LeftTop.Y, mr.RightBottom.X, mr.RightBottom.Y)
 
 			// save face pics
@@ -145,8 +166,8 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 				sp.logger.Warn("Could not save a face pictures err=", err)
 				return nil
 			}
-			faces[i].ImageId = imgFrameFN
-			faces[i].FaceImageId = imgFn
+			face.ImageId = imgFrameFN
+			face.FaceImageId = imgFn
 		}
 
 		// Looks good now, trying to store the data to DB
@@ -297,6 +318,8 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 			p.LastSeenAt = f.CapturedAt
 			p.PictureId = f.FaceImageId
 			newPers = append(newPers, p)
+			// marks the person as seen first time on the scene (affects faces filtering)
+			sp.persCache.mark_person_as_new(p.Id)
 		}
 		err := pp.InsertPersons(newPers)
 		if err != nil {

@@ -305,3 +305,7 @@ func (q *FacesQuery) String() string {
 func (q *ProfileQuery) String() string {
 	return fmt.Sprintf("{ProfileIds=%v}", q.ProfileIds)
 }
+
+func (r Rectangle) Area() int {
+	return (r.RightBottom.X - r.LeftTop.X) * (r.RightBottom.Y - r.LeftTop.Y)
+}
