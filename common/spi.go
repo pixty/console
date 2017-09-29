@@ -28,6 +28,11 @@ type (
 
 	ISO8601Time time.Time
 
+	// returns orgId by camId
+	CamId2OrgIdCache interface {
+		GetOrgId(camId int64) int64
+	}
+
 	Error struct {
 		code  int
 		param interface{}
