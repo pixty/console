@@ -85,8 +85,13 @@ CREATE TABLE IF NOT EXISTS `person` (
 	INDEX `created_at_idx` USING BTREE (created_at),
 	INDEX `last_seen_idx` USING BTREE (last_seen),
 	INDEX `profile_id_idx` USING BTREE (profile_id),
-	INDEX `match_group_idx` USING BTREE (match_group),
+	INDEX `match_group_cam_id_idx` USING BTREE (match_group, cam_id),
 	FOREIGN KEY (`cam_id`) REFERENCES camera(id) ON DELETE RESTRICT
+) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
+
+CREATE TABLE IF NOT EXISTS `match_group` (
+	`id`                    BIGINT(20) NOT NULL AUTO_INCREMENT,
+	PRIMARY KEY (`id`)
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8 COLLATE utf8_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `face` (

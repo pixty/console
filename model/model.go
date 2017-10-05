@@ -115,6 +115,18 @@ type (
 		DisplayName string
 	}
 
+	MatcherRecords struct {
+		Records  []*MatcherRecord
+		MinMG    int64
+		MaxMG    int64
+		FacesCnt int // contains total number of faces stored in the Records
+	}
+
+	MatcherRecord struct {
+		Person *Person
+		Faces  []*Face
+	}
+
 	// Persister is an interface which provides an access to persistent layer
 	Persister interface {
 		// Returns an TX objecct for accessing to Main DB
@@ -203,6 +215,9 @@ type (
 		UpdatePerson(person *Person) error
 		UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint64) error
 		UpdatePersonsProfileId(prfId, newPrfId int64) error
+		//returns a mix of Person->[]Face for matcher
+		FindPersonsForMatchCache(orgId, startMg int64, limit int) (*MatcherRecords, error)
+		UpdatePersonMatchGroup(persId string, mg int64) error // apply match group mg to personId
 
 		// ==== FieldInfos ====
 		GetFieldInfo(fldId int64) (*FieldInfo, error)
@@ -308,4 +323,8 @@ func (q *ProfileQuery) String() string {
 
 func (r Rectangle) Area() int {
 	return (r.RightBottom.X - r.LeftTop.X) * (r.RightBottom.Y - r.LeftTop.Y)
+}
+
+func (mr *MatcherRecord) String() string {
+	return fmt.Sprint("{personId=", mr.Person.Id, ", faces=", len(mr.Faces), "}")
 }

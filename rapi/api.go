@@ -194,6 +194,17 @@ func (a *api) DiPostConstruct() {
 	a.ge.POST("/cameras/:camId/newkey", a.h_POST_cameras_camId_newkey)
 }
 
+// =========================== CamId2OrgIdCache ==============================
+// The api surprisingly provides CamId2OrgIdCache interface
+func (a *api) GetOrgId(camId int64) int64 {
+	orgId, err := a.authMW.getCamOrgId(camId)
+	if err != nil {
+		a.logger.Error("Could not find orgId by camId err=", err)
+		orgId = -1
+	}
+	return orgId
+}
+
 // =============================== Handlers ==================================
 // GET /ping
 func (a *api) h_GET_ping(c *gin.Context) {

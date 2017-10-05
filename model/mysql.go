@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io/ioutil"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -851,8 +852,63 @@ func (mpp *msql_part_tx) UpdatePersonsLastSeenAt(pids []string, lastSeenAt uint6
 // Invoked when a profile is deleted
 func (mpp *msql_part_tx) UpdatePersonsProfileId(prfId, newPrfId int64) error {
 	mpp.logger.Debug("Updating persons with profileId=", prfId, " to newProfileId=", newPrfId)
-	_, err := mpp.executor().Exec("UPDATE person SET profile_i=? WHERE profile_id=?", newPrfId, prfId)
+	_, err := mpp.executor().Exec("UPDATE person SET profile_id=? WHERE profile_id=?", newPrfId, prfId)
 	return err
+}
+
+func (mpp *msql_part_tx) UpdatePersonMatchGroup(persId string, mg int64) error {
+	mpp.logger.Debug("Updating person with person_id=", persId, " to match_group=", mg)
+	_, err := mpp.executor().Exec("UPDATE person SET match_group=? WHERE id=?", mg, persId)
+	return err
+}
+
+func (mpp *msql_part_tx) FindPersonsForMatchCache(orgId, startMg int64, limit int) (*MatcherRecords, error) {
+	rows, err := mpp.executor().Query("SELECT p.id, p.match_group, f.id, f.v128d FROM person AS p JOIN face AS f ON p.id=f.person_id WHERE p.cam_id IN (SELECT id FROM camera WHERE org_id=?) AND p.match_group>=? ORDER BY p.match_group LIMIT ?",
+		orgId, startMg, limit)
+	if err != nil {
+		mpp.logger.Warn("FindPersonsForMatchCache(): Could not select data by orgId=", orgId, ", startMg=", startMg, ", limit=", limit, ", got the err=", err)
+		return nil, err
+	}
+	defer rows.Close()
+	res := &MatcherRecords{Records: make([]*MatcherRecord, 0, 1), MinMG: math.MaxInt64}
+
+	mapRecs := make(map[string]*MatcherRecord)
+	for rows.Next() {
+		var pId string
+		var pMG, fId int64
+		vec := make([]byte, common.V128D_SIZE)
+		err := rows.Scan(&pId, &pMG, &fId, &vec)
+		if err != nil {
+			mpp.logger.Warn("FindPersonsForMatchCache(): scan err=", err)
+			return nil, err
+		}
+
+		mr, ok := mapRecs[pId]
+		if !ok {
+			mr = new(MatcherRecord)
+			mr.Person = new(Person)
+			mr.Person.Id = pId
+			mr.Person.MatchGroup = pMG
+			mr.Faces = make([]*Face, 0, 1)
+			mapRecs[pId] = mr
+			res.Records = append(res.Records, mr)
+
+			if res.MaxMG < pMG {
+				res.MaxMG = pMG
+			}
+			if res.MinMG > pMG {
+				res.MinMG = pMG
+			}
+		}
+
+		f := new(Face)
+		f.Id = fId
+		f.V128D = common.NewV128D()
+		f.V128D.Assign(vec)
+		mr.Faces = append(mr.Faces, f)
+		res.FacesCnt++ // counting faces in the result
+	}
+	return res, nil
 }
 
 // =========== Field Infos

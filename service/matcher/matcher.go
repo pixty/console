@@ -19,13 +19,14 @@ type (
 	}
 
 	matcher struct {
-		C2oCache common.CamId2OrgIdCache `inject:""`
+		C2oCache common.CamId2OrgIdCache `inject:"cam2orgCache"`
 		MainCtx  context.Context         `inject:"mainCtx"`
+		Cache    MatcherCache            `inject:"matcherCache"`
+		CConfig  common.ConsoleConfig    `inject:""`
 
 		logger      log4g.Logger
 		lock        sync.Mutex
 		orgMatchers map[int64]*org_matcher
-		cache       *cache
 		cmp_params  face_cmp_params
 	}
 
@@ -69,6 +70,20 @@ const (
 	FD_STATE_END      = 3
 )
 
+func NewMatcher() Matcher {
+	return new(matcher)
+}
+
+// ========================== PostConstructor ================================
+func (m *matcher) DiPostConstruct() {
+	m.logger = log4g.GetLogger("Matcher")
+	m.orgMatchers = make(map[int64]*org_matcher)
+	m.cmp_params.maxDistance = m.CConfig.MchrDistance
+	m.cmp_params.positiveTshld = float32(m.CConfig.MchrPositiveTrshld) / 100.0
+}
+
+// ============================== Matcher ====================================
+// When new faces are received and this person are not matched with somebody else yet
 func (m *matcher) OnNewFaces(camId int64, persons []*model.Person, faces []*model.Face) {
 	if len(persons) == 0 || len(faces) == 0 {
 		return
@@ -89,7 +104,7 @@ func (m *matcher) OnNewFaces(camId int64, persons []*model.Person, faces []*mode
 		if !ok {
 			continue
 		}
-		pd.faces = append(pd.faces, &face_desc{f, FD_STATE_INIT})
+		pd.faces = append(pd.faces, &face_desc{face: f, state: FD_STATE_INIT})
 	}
 
 	if len(mp.persons) == 0 {
@@ -133,8 +148,7 @@ func (m *matcher) releaseOrgMatcherIfNoUsers(om *org_matcher) bool {
 
 // returns an org matcher or error, after using releaseOrgMatcher() must be called for the matcher
 func (m *matcher) getOrgMatcher(camId int64) (*org_matcher, error) {
-
-	orgId := m.c2oCache.GetOrgId(camId)
+	orgId := m.C2oCache.GetOrgId(camId)
 	if orgId <= 0 {
 		return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find org by camId="+strconv.FormatInt(camId, 10))
 	}
@@ -148,9 +162,9 @@ func (m *matcher) getOrgMatcher(camId int64) (*org_matcher, error) {
 	m.lock.Unlock()
 
 	om = new(org_matcher)
-	om.logger = m.logger.WithId("{orgId=" + strconv.FormatInt(orgId, 10) + "}")
+	om.logger = m.logger.WithId("{orgId=" + strconv.FormatInt(orgId, 10) + "}").(log4g.Logger)
 	om.orgId = orgId
-	om.mathcer = m
+	om.matcher = m
 	om.inpChnl = make(chan *mchr_packet, 1000)
 	om.refCntr = 1
 	go func(om *org_matcher) {
@@ -167,7 +181,7 @@ func (m *matcher) getOrgMatcher(camId int64) (*org_matcher, error) {
 // Processing organization requests
 func (om *org_matcher) process() {
 	om.logger.Info("Starting process")
-	defer om.matcher.releaseOrgMatcher()
+	defer om.matcher.releaseOrgMatcher(om)
 	for {
 		select {
 		case <-om.matcher.MainCtx.Done():
@@ -181,7 +195,7 @@ func (om *org_matcher) process() {
 			om.fresh_packets = append(om.fresh_packets, mp)
 			om.processFaces()
 		case <-time.After(time.Minute):
-			if om.matcher.releaseOrgMatcherIfNoUsers() {
+			if om.matcher.releaseOrgMatcherIfNoUsers(om) {
 				om.logger.Info("Closing by timeout")
 				return
 			}
@@ -193,7 +207,7 @@ func (om *org_matcher) process() {
 func (om *org_matcher) readAllPackUnblocked() {
 	for {
 		select {
-		case mp <- om.inpChnl:
+		case mp := <-om.inpChnl:
 			om.fresh_packets = append(om.fresh_packets, mp)
 		default:
 			return
@@ -218,23 +232,23 @@ func (om *org_matcher) addRequestsToWork() bool {
 }
 
 func (om *org_matcher) processFaces() {
-	for addRequestsToWork() {
-		cBlk := om.matcher.cache.nextCacheBlock(om.orgId)
+	for om.addRequestsToWork() {
+		cBlk := om.matcher.Cache.NextCacheBlock(om.orgId)
 		if cBlk == nil {
 			return
 		}
 	pdLoop:
 		for _, pd := range om.mchngPers {
 			for _, fd := range pd.faces {
-				cbr := fd.compareWithCacheBlock(cBlk, &om.matcher.cmp_params)
-				if cbr != nil {
-					cBlk.onMatch(cbr, pd)
+				mr := fd.compareWithCacheBlock(cBlk, &om.matcher.cmp_params)
+				if mr != nil {
+					cBlk.onMatch(mr, pd.toMatcherRecord())
 					delete(om.mchngPers, pd.person.Id)
 					continue pdLoop
 				}
 			}
 			if pd.pruneFaces() {
-				cBlk.onNewMG(pd)
+				cBlk.onNewMG(pd.toMatcherRecord())
 				delete(om.mchngPers, pd.person.Id)
 			}
 		}
@@ -255,9 +269,10 @@ func minInt64(a, b int64) int64 {
 	return b
 }
 
+// ---------------------------- person_desc ----------------------------------
 func (pd *person_desc) addFaces(othrPD *person_desc) {
 	if pd.person.Id != othrPD.person.Id {
-		panic("addFaces(othrPD *person_desc): wrong person Ids: expected " + strconv.FormatInt(pd.person.Id, 10) + ", but actually is " + strconv.FormatInt(othrPD.person.Id, 10))
+		panic("addFaces(othrPD *person_desc): wrong person Ids: expected " + pd.person.Id + ", but actually is " + othrPD.person.Id)
 	}
 	pd.faces = append(pd.faces, othrPD.faces...)
 }
@@ -273,12 +288,21 @@ func (pd *person_desc) pruneFaces() bool {
 	return len(nf) == 0
 }
 
+func (pd *person_desc) toMatcherRecord() *model.MatcherRecord {
+	faces := make([]*model.Face, len(pd.faces))
+	for i, fd := range pd.faces {
+		faces[i] = fd.face
+	}
+	return &model.MatcherRecord{Person: pd.person, Faces: faces}
+}
+
+// ----------------------------- face_desc ------------------------------------
 func (fd *face_desc) String() string {
 	return fmt.Sprint("{faceId=", fd.face.Id, ", state=", fd.state, ", startIdx=", fd.startIdx, ", endIdx=", fd.endIdx, "}")
 }
 
 // gets a fd and compares it with a block of faces. returns
-func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params) *cache_block_rec {
+func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params) *model.MatcherRecord {
 	if fd.state == FD_STATE_INIT {
 		fd.startIdx = cb.startIdx
 		fd.endIdx = math.MaxInt64
@@ -288,42 +312,44 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 			fd.state = FD_STATE_MIDL
 		}
 	} else if cb.startIdx == 0 && fd.state == FD_STATE_MIDL {
-		fd.endIdx = fd.startIdx - 1
+		fd.endIdx = fd.startIdx
 		fd.startIdx = 0
 		fd.state = FD_STATE_FRMSTART
 	}
 
+	// startIndex inclusive
 	cmpStart := maxInt64(fd.startIdx, cb.startIdx)
-	cmpEnd := minInt64(fd.endIdx, cb.endIdx)
+	// end index exclusive
+	cmpEnd := minInt64(fd.endIdx, cb.endIdx+1)
 
 	if cmpStart > cb.endIdx || cmpEnd < cb.startIdx {
+		fd.state = FD_STATE_END
+		log4g.GetLogger("Matcher").Warn("Strange things happen, we have fd=", fd,
+			", which doesn't fit by indexes with cb=", cb, ", marking it as we done with this!")
 		return nil
 	}
 
-	for _, cbr := range cb.records {
-		if cbr.person.MatchGroup < cmpStart {
-			continue
-		}
-		if cbr.person.MatchGroup > cmpEnd {
-			break
-		}
-		if fd.matchToRecord(cbr, fcp) {
+	endIdx := cb.getInsertIdx(cmpEnd)
+	for i := cb.getInsertIdx(cmpStart); i < endIdx; i++ {
+		mr := cb.records.Records[i]
+		if fd.matchWithCacheRecord(mr, fcp) {
 			fd.state = FD_STATE_END
-			return cbr
+			return mr
 		}
 	}
-	fd.startIdx = cb.endIdx
+	// next time will start from the index which we did not check yet
+	fd.startIdx = cmpEnd
 	if fd.startIdx >= fd.endIdx || (fd.state == FD_STATE_FRMSTART && cb.lastBlock) {
 		fd.state = FD_STATE_END
 	}
 	return nil
 }
 
-func (fd *face_desc) matchWithCacheRecord(cbr *cache_block_rec, fcp *face_cmp_params) bool {
-	total := len(cbr.faces)
-	needed := gorivets.Max(1, int(total*fcp.positiveTshld+0.5))
+func (fd *face_desc) matchWithCacheRecord(mr *model.MatcherRecord, fcp *face_cmp_params) bool {
+	total := len(mr.Faces)
+	needed := gorivets.Max(1, int(float32(total)*fcp.positiveTshld+0.5))
 	for i := 0; needed > 0 && needed+i <= total; i++ {
-		if common.MatchAdvanced2V128D(fd.face.V128D, cbr.faces[i].V128D, fcp.maxDistance) {
+		if common.MatchAdvanced2V128D(fd.face.V128D, mr.Faces[i].V128D, fcp.maxDistance) {
 			needed--
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/pixty/console/service/email"
 	"github.com/pixty/console/service/fpcp_serv"
 	"github.com/pixty/console/service/image"
+	"github.com/pixty/console/service/matcher"
 	"github.com/pixty/console/service/scene"
 	"github.com/pixty/console/service/storage"
 	"github.com/pixty/console/service/sweeper"
@@ -51,12 +52,18 @@ func main() {
 	esender := email.NewEmailSender()
 	faceSweeper := sweeper.NewFacesSweeper()
 	imageSweeper := sweeper.NewImagesSweeper()
+	mchr := matcher.NewMatcher()
+	matcherCache := matcher.NewMatcherCache()
 
 	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService, lbs, esender, imgSrvc)
 	injector.RegisterMany(faceSweeper, imageSweeper)
+	// restAPI provides the interface
+	injector.RegisterOne(restApi, "cam2orgCache")
 	injector.RegisterOne(msqlPersist, "persister")
 	injector.RegisterOne(mainCtx, "mainCtx")
 	injector.RegisterOne(scnProc, "scnProcessor")
+	injector.RegisterOne(mchr, "matcher")
+	injector.RegisterOne(matcherCache, "matcherCache")
 	injector.Construct()
 
 	restApi.Run()

@@ -65,6 +65,12 @@ type ConsoleConfig struct {
 	SweepImagesPackSize        int // pack size (hom many records served at a time
 	SweepImagesPackSizePauseMs int // pause between packs in ms, could be 0
 
+	// Matcher
+	MchrCacheSize       int     // max cache size (counted in number of V128 records)
+	MchrCachePerOrgSize int     // how many V128D records can be in the cache
+	MchrPositiveTrshld  int     // a value in percentage indicates how many faces should be in positive distance [0..100]
+	MchrDistance        float64 // distance between faces we considering them be same
+
 	logger log4g.Logger
 }
 
@@ -75,6 +81,8 @@ func (cc *ConsoleConfig) NiceString() string {
 		"(", cc.GetLbsMaxSizeBytes(), "bytes)", ",\n\tImgsPrefix=", cc.ImgsPrefix, ",\n\tImgsTmpTTLSec=", cc.ImgsTmpTTLSec,
 		",\n\tSweepFacesToSec=", cc.SweepFacesToSec, ",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize,
 		",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize, ",\n\tSweepImagesPackSizePauseMs=", cc.SweepImagesPackSizePauseMs,
+		",\n\tMchrCacheSize=", cc.MchrCacheSize, "\n\tMchrCachePerOrgSize=", cc.MchrCachePerOrgSize,
+		",\n\tMchrPositiveTrshld=", cc.MchrPositiveTrshld, "\n\tMchrDistance=", cc.MchrDistance,
 		"\n}")
 }
 
@@ -102,6 +110,10 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.SweepImagesToSec = 60
 	cc.SweepImagesPackSize = 1000
 	cc.SweepImagesPackSizePauseMs = 5
+	cc.MchrCacheSize = 1000000     // 1 million is max so far
+	cc.MchrCachePerOrgSize = 50000 // vectors per org looks reasonable
+	cc.MchrPositiveTrshld = 30     // 30% should be within required distance at least
+	cc.MchrDistance = 0.6          // matcher positive distance
 	cc.logger = log4g.GetLogger("pixty.ConsoleConfig")
 	return cc
 }
@@ -157,6 +169,18 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	}
 	if cc1.SweepImagesPackSizePauseMs > 0 {
 		cc.SweepImagesPackSizePauseMs = cc1.SweepImagesPackSizePauseMs
+	}
+	if cc1.MchrCacheSize > 0 {
+		cc.MchrCacheSize = cc1.MchrCacheSize
+	}
+	if cc1.MchrCachePerOrgSize > 0 {
+		cc.MchrCachePerOrgSize = cc1.MchrCachePerOrgSize
+	}
+	if cc1.MchrDistance > 0.1 {
+		cc.MchrDistance = cc1.MchrDistance
+	}
+	if cc.MchrPositiveTrshld > 0 {
+		cc.MchrPositiveTrshld = cc1.MchrPositiveTrshld
 	}
 }
 
