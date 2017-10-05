@@ -817,8 +817,8 @@ func (mpp *msql_part_tx) InsertPersons(persons []*Person) error {
 }
 
 func (mpp *msql_part_tx) UpdatePerson(p *Person) error {
-	_, err := mpp.executor().Exec("UPDATE person SET last_seen=?, profile_id=?, picture_id=?, match_group=?",
-		p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
+	_, err := mpp.executor().Exec("UPDATE person SET last_seen=?, profile_id=?, picture_id=?, match_group=? WHERE id=?",
+		p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup, p.Id)
 	if err != nil {
 		mpp.logger.Warn("UpdatePerson(): Could not update person ", p, ", got the err=", err)
 		return err
@@ -863,7 +863,7 @@ func (mpp *msql_part_tx) UpdatePersonMatchGroup(persId string, mg int64) error {
 }
 
 func (mpp *msql_part_tx) FindPersonsForMatchCache(orgId, startMg int64, limit int) (*MatcherRecords, error) {
-	rows, err := mpp.executor().Query("SELECT p.id, p.match_group, f.id, f.v128d FROM person AS p JOIN face AS f ON p.id=f.person_id WHERE p.cam_id IN (SELECT id FROM camera WHERE org_id=?) AND p.match_group>=? ORDER BY p.match_group LIMIT ?",
+	rows, err := mpp.executor().Query("SELECT p.id, p.match_group, f.id, f.v128d FROM person AS p JOIN face AS f ON p.id=f.person_id WHERE p.cam_id IN (SELECT id FROM camera WHERE org_id=?) AND p.match_group>=? AND p.match_group > 0 ORDER BY p.match_group LIMIT ?",
 		orgId, startMg, limit)
 	if err != nil {
 		mpp.logger.Warn("FindPersonsForMatchCache(): Could not select data by orgId=", orgId, ", startMg=", startMg, ", limit=", limit, ", got the err=", err)

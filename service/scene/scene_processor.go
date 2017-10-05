@@ -16,6 +16,7 @@ import (
 	"github.com/pixty/console/common"
 	"github.com/pixty/console/common/fpcp"
 	"github.com/pixty/console/model"
+	"github.com/pixty/console/service/matcher"
 	"golang.org/x/net/context"
 )
 
@@ -25,6 +26,7 @@ type (
 		MainCtx      context.Context        `inject:"mainCtx"`
 		CConfig      *common.ConsoleConfig  `inject:""`
 		ImageService *imageSrv.ImageService `inject:""`
+		Matcher      matcher.Matcher        `inject:"matcher"`
 		logger       log4g.Logger
 		cpCache      *cam_pictures_cache
 		persCache    *persons_cache
@@ -298,6 +300,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 			exists = append(exists, p.Id)
 			delete(persIdMap, p.Id)
 		}
+
 		err := pp.UpdatePersonsLastSeenAt(exists, faces[0].CapturedAt)
 		if err != nil {
 			sp.logger.Error("Could not update last seen at time for ids=", exists, ", err=", err)
@@ -317,6 +320,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 			p.CreatedAt = uint64(createdAt)
 			p.LastSeenAt = f.CapturedAt
 			p.PictureId = f.FaceImageId
+			persons = append(persons, p)
 			newPers = append(newPers, p)
 			// marks the person as seen first time on the scene (affects faces filtering)
 			sp.persCache.mark_person_as_new(p.Id)
@@ -335,6 +339,10 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 		pp.Rollback()
 		return err
 	}
+
+	pp.Commit()
+	//sp.Matcher.OnNewFaces(camId, persons, faces)
+
 	return nil
 }
 

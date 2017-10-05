@@ -18,8 +18,8 @@ type (
 	}
 
 	cache struct {
-		Persister model.Persister      `inject:""`
-		CConfig   common.ConsoleConfig `inject:""`
+		Persister model.Persister       `inject:"persister"`
+		CConfig   *common.ConsoleConfig `inject:""`
 
 		lock      sync.Mutex
 		logger    log4g.Logger
@@ -55,7 +55,7 @@ func NewMatcherCache() MatcherCache {
 
 // ========================== PostConstructor ================================
 func (ch *cache) DiPostConstruct() {
-	ch.logger = log4g.GetLogger("MatcherCache")
+	ch.logger = log4g.GetLogger("pixty.MatcherCache")
 	ch.mainCache = gorivets.NewLRU(int64(ch.CConfig.MchrCacheSize), nil)
 }
 
@@ -184,8 +184,12 @@ func (oc *org_cache) applyNewMatchGroup(personId string) (int64, error) {
 		ptx.Rollback()
 		return 0, err
 	}
+	person.ProfileId = prfId
+	person.MatchGroup = prfId
 
-	err = ptx.UpdatePersonMatchGroup(personId, prfId)
+	oc.logger.Debug("Updating match group for ", person)
+
+	err = ptx.UpdatePerson(person)
 	if err != nil {
 		oc.logger.Warn("applyNewMatchGroup(): could not apply match group persId=", personId, ", mg=", prfId, ", err=", err)
 		ptx.Rollback()

@@ -16,13 +16,14 @@ import (
 
 type (
 	Matcher interface {
+		OnNewFaces(camId int64, persons []*model.Person, faces []*model.Face)
 	}
 
 	matcher struct {
 		C2oCache common.CamId2OrgIdCache `inject:"cam2orgCache"`
 		MainCtx  context.Context         `inject:"mainCtx"`
 		Cache    MatcherCache            `inject:"matcherCache"`
-		CConfig  common.ConsoleConfig    `inject:""`
+		CConfig  *common.ConsoleConfig   `inject:""`
 
 		logger      log4g.Logger
 		lock        sync.Mutex
@@ -53,8 +54,8 @@ type (
 	face_desc struct {
 		face     *model.Face
 		state    int
-		startIdx int64
-		endIdx   int64
+		startIdx int64 // inclusive index (should be checked)
+		endIdx   int64 // exclusive index (the index should not be checked, or already checked)
 	}
 
 	face_cmp_params struct {
@@ -70,13 +71,17 @@ const (
 	FD_STATE_END      = 3
 )
 
+func (mp *mchr_packet) String() string {
+	return fmt.Sprint("{persons=", len(mp.persons), "}")
+}
+
 func NewMatcher() Matcher {
 	return new(matcher)
 }
 
 // ========================== PostConstructor ================================
 func (m *matcher) DiPostConstruct() {
-	m.logger = log4g.GetLogger("Matcher")
+	m.logger = log4g.GetLogger("pixty.Matcher")
 	m.orgMatchers = make(map[int64]*org_matcher)
 	m.cmp_params.maxDistance = m.CConfig.MchrDistance
 	m.cmp_params.positiveTshld = float32(m.CConfig.MchrPositiveTrshld) / 100.0
@@ -111,14 +116,22 @@ func (m *matcher) OnNewFaces(camId int64, persons []*model.Person, faces []*mode
 		return
 	}
 
-	om, err := m.getOrgMatcher(camId)
-	if err != nil {
-		m.logger.Warn("Could not obtain org matcher, err=", err)
-		return
+	orgId := m.C2oCache.GetOrgId(camId)
+	if orgId <= 0 {
+		m.logger.Error("Could not find org by camId=", camId, ", skip processing")
 	}
 
+	m.logger.Debug("Processing packet=", mp, " for camId=", camId)
+	m.sendPackets(orgId, &mp)
+}
+
+func (m *matcher) sendPackets(orgId int64, mps ...*mchr_packet) {
+	om := m.getOrgMatcher(orgId)
 	defer m.releaseOrgMatcher(om)
-	om.inpChnl <- &mp
+
+	for _, mp := range mps {
+		om.inpChnl <- mp
+	}
 }
 
 // release org_matcher
@@ -128,6 +141,7 @@ func (m *matcher) releaseOrgMatcher(om *org_matcher) {
 
 	om.refCntr--
 	if om.refCntr == 0 {
+		m.logger.Info("releaseOrgMatcher(): Shutting down org matcher due to ref counter ", om)
 		close(om.inpChnl)
 		delete(m.orgMatchers, om.orgId)
 	}
@@ -141,47 +155,52 @@ func (m *matcher) releaseOrgMatcherIfNoUsers(om *org_matcher) bool {
 	if om.refCntr > 1 {
 		return false
 	}
+	m.logger.Info("releaseOrgMatcherIfNoUsers(): Shutting down org matcher due to ref counter ", om)
+	om.refCntr = 0
 	close(om.inpChnl)
 	delete(m.orgMatchers, om.orgId)
 	return true
 }
 
 // returns an org matcher or error, after using releaseOrgMatcher() must be called for the matcher
-func (m *matcher) getOrgMatcher(camId int64) (*org_matcher, error) {
-	orgId := m.C2oCache.GetOrgId(camId)
-	if orgId <= 0 {
-		return nil, common.NewError(common.ERR_NOT_FOUND, "Could not find org by camId="+strconv.FormatInt(camId, 10))
-	}
-
+func (m *matcher) getOrgMatcher(orgId int64) *org_matcher {
 	m.lock.Lock()
 	om, ok := m.orgMatchers[orgId]
 	if ok {
 		om.refCntr++
-		return om, nil
+		m.lock.Unlock()
+		return om
 	}
-	m.lock.Unlock()
 
 	om = new(org_matcher)
 	om.logger = m.logger.WithId("{orgId=" + strconv.FormatInt(orgId, 10) + "}").(log4g.Logger)
 	om.orgId = orgId
 	om.matcher = m
 	om.inpChnl = make(chan *mchr_packet, 1000)
-	om.refCntr = 1
+	om.fresh_packets = make([]*mchr_packet, 0, 10)
+	om.mchngPers = make(map[string]*person_desc)
+	om.refCntr = 2 // one will be used by process, another will be used by the requestor
+	m.orgMatchers[orgId] = om
+	m.lock.Unlock()
+
+	m.logger.Info("New matcher for orgId=", orgId, " has been just created")
+
 	go func(om *org_matcher) {
 		om.process()
 	}(om)
 
-	m.lock.Lock()
-	m.orgMatchers[orgId] = om
-	m.lock.Unlock()
+	return om
+}
 
-	return om, nil
+func (om *org_matcher) String() string {
+	return fmt.Sprint("{orgId=", om.orgId, ", refs=", om.refCntr, ", freshPacks=", len(om.fresh_packets), ", inProcs=", len(om.mchngPers), "}")
 }
 
 // Processing organization requests
 func (om *org_matcher) process() {
-	om.logger.Info("Starting process")
+	om.logger.Info("Starting process ", om)
 	defer om.matcher.releaseOrgMatcher(om)
+
 	for {
 		select {
 		case <-om.matcher.MainCtx.Done():
@@ -196,7 +215,8 @@ func (om *org_matcher) process() {
 			om.processFaces()
 		case <-time.After(time.Minute):
 			if om.matcher.releaseOrgMatcherIfNoUsers(om) {
-				om.logger.Info("Closing by timeout")
+				om.logger.Info("Closing matcher by timeout ", om)
+				om.resendPacketsIfLost()
 				return
 			}
 			om.logger.Info("Tried to release the org matcher, but it seems there are still other users.")
@@ -204,7 +224,17 @@ func (om *org_matcher) process() {
 	}
 }
 
-func (om *org_matcher) readAllPackUnblocked() {
+func (om *org_matcher) resendPacketsIfLost() {
+	om.readAllPacksUnblocked()
+	if len(om.fresh_packets) == 0 {
+		return
+	}
+
+	om.logger.Info("Resending lost ", len(om.fresh_packets), " packets due to lost them in a raise condition")
+	om.matcher.sendPackets(om.orgId, om.fresh_packets...)
+}
+
+func (om *org_matcher) readAllPacksUnblocked() {
 	for {
 		select {
 		case mp := <-om.inpChnl:
@@ -216,7 +246,7 @@ func (om *org_matcher) readAllPackUnblocked() {
 }
 
 func (om *org_matcher) addRequestsToWork() bool {
-	om.readAllPackUnblocked()
+	om.readAllPacksUnblocked()
 	for _, mp := range om.fresh_packets {
 		for pid, pd := range mp.persons {
 			mpd, ok := om.mchngPers[pid]
@@ -235,14 +265,19 @@ func (om *org_matcher) processFaces() {
 	for om.addRequestsToWork() {
 		cBlk := om.matcher.Cache.NextCacheBlock(om.orgId)
 		if cBlk == nil {
+			om.logger.Warn("Got nil instead of cache block. Shutting down?")
 			return
 		}
+
+		comps := 0
+		pers := len(om.mchngPers)
 	pdLoop:
 		for _, pd := range om.mchngPers {
 			for _, fd := range pd.faces {
 				mr := fd.compareWithCacheBlock(cBlk, &om.matcher.cmp_params)
+				comps++
 				if mr != nil {
-					cBlk.onMatch(mr, pd.toMatcherRecord())
+					cBlk.onMatch(pd.toMatcherRecord(), mr)
 					delete(om.mchngPers, pd.person.Id)
 					continue pdLoop
 				}
@@ -252,6 +287,7 @@ func (om *org_matcher) processFaces() {
 				delete(om.mchngPers, pd.person.Id)
 			}
 		}
+		om.logger.Debug(comps, " comparisons made for ", pers, " persons against ", cBlk)
 	}
 }
 
@@ -279,10 +315,11 @@ func (pd *person_desc) addFaces(othrPD *person_desc) {
 
 func (pd *person_desc) pruneFaces() bool {
 	nf := make([]*face_desc, 0, len(pd.faces))
-	for _, fd := range pd.faces {
+	for i, fd := range pd.faces {
 		if fd.state != FD_STATE_END {
 			nf = append(nf, fd)
 		}
+		pd.faces[i] = nil
 	}
 	pd.faces = nf
 	return len(nf) == 0
@@ -317,14 +354,14 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 		fd.state = FD_STATE_FRMSTART
 	}
 
-	// startIndex inclusive
+	// startIndex inclusive should be checked
 	cmpStart := maxInt64(fd.startIdx, cb.startIdx)
-	// end index exclusive
+	// end index exclusive - don't need to be checked
 	cmpEnd := minInt64(fd.endIdx, cb.endIdx+1)
 
 	if cmpStart > cb.endIdx || cmpEnd < cb.startIdx {
 		fd.state = FD_STATE_END
-		log4g.GetLogger("Matcher").Warn("Strange things happen, we have fd=", fd,
+		log4g.GetLogger("pixty.Matcher").Warn("Strange things happen, we have fd=", fd,
 			", which doesn't fit by indexes with cb=", cb, ", marking it as we done with this!")
 		return nil
 	}
@@ -337,6 +374,7 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 			return mr
 		}
 	}
+
 	// next time will start from the index which we did not check yet
 	fd.startIdx = cmpEnd
 	if fd.startIdx >= fd.endIdx || (fd.state == FD_STATE_FRMSTART && cb.lastBlock) {
