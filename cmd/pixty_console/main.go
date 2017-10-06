@@ -44,8 +44,9 @@ func main() {
 		}()
 	}
 
-	defer injector.Shutdown()
+	// Defers are called in reverse order...
 	defer log4g.Shutdown()
+	defer injector.Shutdown()
 
 	mainCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

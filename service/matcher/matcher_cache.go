@@ -159,7 +159,7 @@ func (oc *org_cache) applyMatchGroup(personId string, mg int64) error {
 		return err
 	}
 
-	oc.logger.Info("Assigning existin match group for ", personId, " match_group=", mg)
+	oc.logger.Info("Assigning existing match group for ", personId, " match_group=", mg)
 	return ptx.UpdatePersonMatchGroup(personId, mg)
 }
 

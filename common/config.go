@@ -141,6 +141,9 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	if cc1.LbsDir != "" {
 		cc.LbsDir = cc1.LbsDir
 	}
+	if cc1.LogConfigFN != "" {
+		cc.LogConfigFN = cc1.LogConfigFN
+	}
 	if cc1.LbsMaxSize != "" {
 		cc.LbsMaxSize = cc1.LbsMaxSize
 	}
