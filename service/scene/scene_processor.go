@@ -341,7 +341,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 	}
 
 	pp.Commit()
-	//sp.Matcher.OnNewFaces(camId, persons, faces)
+	sp.Matcher.OnNewFaces(camId, persons, faces)
 
 	return nil
 }

@@ -719,6 +719,16 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 		whereParams = append(whereParams, uint64(pQuery.MinFacesCount))
 	}
 
+	if pQuery.MatchGroup != nil {
+		whereCond = append(whereCond, "p.match_group = ?")
+		whereParams = append(whereParams, *pQuery.MatchGroup)
+	}
+
+	if pQuery.MinId != nil {
+		whereCond = append(whereCond, "p.id > ?")
+		whereParams = append(whereParams, *pQuery.MinId)
+	}
+
 	if pQuery.PersonIds != nil {
 		if len(pQuery.PersonIds) == 0 {
 			mpp.logger.Debug("FindPersons: empty, but not nil pQuery.PersonIds, returns empty result ")
@@ -753,6 +763,8 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 		q = q + " ORDER BY p.last_seen DESC"
 	case PQO_CREATED_AT_ASC:
 		q = q + " ORDER BY p.created_at ASC"
+	case PQO_ID_ASC:
+		q = q + " ORDER BY p.id ASC"
 	default:
 	}
 
@@ -779,7 +791,6 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 		res = append(res, p)
 	}
 	return res, nil
-
 }
 
 func (mpp *msql_part_tx) InsertPerson(p *Person) error {

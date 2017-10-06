@@ -159,6 +159,7 @@ func (oc *org_cache) applyMatchGroup(personId string, mg int64) error {
 		return err
 	}
 
+	oc.logger.Info("Assigning existin match group for ", personId, " match_group=", mg)
 	return ptx.UpdatePersonMatchGroup(personId, mg)
 }
 
@@ -187,7 +188,7 @@ func (oc *org_cache) applyNewMatchGroup(personId string) (int64, error) {
 	person.ProfileId = prfId
 	person.MatchGroup = prfId
 
-	oc.logger.Debug("Updating match group for ", person)
+	oc.logger.Info("Assigning new match group to ", person)
 
 	err = ptx.UpdatePerson(person)
 	if err != nil {
@@ -206,7 +207,6 @@ func (cb *cache_block) String() string {
 // when a match happens the candidate (cand) MatcherRecord is receiving
 // the match group from an existing(exst) one.
 func (cb *cache_block) onMatch(cand, exst *model.MatcherRecord) error {
-	cb.orgCache.logger.Debug("Applying existing match group ", exst.Person.MatchGroup, " to a candidate persoinId=", cand.Person.Id)
 	err := cb.orgCache.applyMatchGroup(cand.Person.Id, exst.Person.MatchGroup)
 	if err != nil {
 		return err

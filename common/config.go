@@ -64,12 +64,16 @@ type ConsoleConfig struct {
 	SweepImagesToSec           int // pause between whole cycles
 	SweepImagesPackSize        int // pack size (hom many records served at a time
 	SweepImagesPackSizePauseMs int // pause between packs in ms, could be 0
+	SweepOrphPersonsMins       int // orphanting age (last seen) of persons who don't have match group assigned
 
 	// Matcher
 	MchrCacheSize       int     // max cache size (counted in number of V128 records)
 	MchrCachePerOrgSize int     // how many V128D records can be in the cache
 	MchrPositiveTrshld  int     // a value in percentage indicates how many faces should be in positive distance [0..100]
 	MchrDistance        float64 // distance between faces we considering them be same
+
+	// Profiler
+	PprofURL string // defines URL for pprof listenere like "localhost:6060", default is ""
 
 	logger log4g.Logger
 }
@@ -81,8 +85,10 @@ func (cc *ConsoleConfig) NiceString() string {
 		"(", cc.GetLbsMaxSizeBytes(), "bytes)", ",\n\tImgsPrefix=", cc.ImgsPrefix, ",\n\tImgsTmpTTLSec=", cc.ImgsTmpTTLSec,
 		",\n\tSweepFacesToSec=", cc.SweepFacesToSec, ",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize,
 		",\n\tSweepImagesPackSize=", cc.SweepImagesPackSize, ",\n\tSweepImagesPackSizePauseMs=", cc.SweepImagesPackSizePauseMs,
+		",\n\tSweepOrphPersonsMins=", cc.SweepOrphPersonsMins,
 		",\n\tMchrCacheSize=", cc.MchrCacheSize, "\n\tMchrCachePerOrgSize=", cc.MchrCachePerOrgSize,
 		",\n\tMchrPositiveTrshld=", cc.MchrPositiveTrshld, "\n\tMchrDistance=", cc.MchrDistance,
+		",\n\tPprofURL=", cc.PprofURL,
 		"\n}")
 }
 
@@ -110,6 +116,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.SweepImagesToSec = 60
 	cc.SweepImagesPackSize = 1000
 	cc.SweepImagesPackSizePauseMs = 5
+	cc.SweepOrphPersonsMins = 10
 	cc.MchrCacheSize = 1000000     // 1 million is max so far
 	cc.MchrCachePerOrgSize = 50000 // vectors per org looks reasonable
 	cc.MchrPositiveTrshld = 30     // 30% should be within required distance at least
@@ -170,6 +177,9 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	if cc1.SweepImagesPackSizePauseMs > 0 {
 		cc.SweepImagesPackSizePauseMs = cc1.SweepImagesPackSizePauseMs
 	}
+	if cc1.SweepOrphPersonsMins > 0 {
+		cc.SweepOrphPersonsMins = cc1.SweepOrphPersonsMins
+	}
 	if cc1.MchrCacheSize > 0 {
 		cc.MchrCacheSize = cc1.MchrCacheSize
 	}
@@ -179,8 +189,11 @@ func (cc *ConsoleConfig) apply(cc1 *ConsoleConfig) {
 	if cc1.MchrDistance > 0.1 {
 		cc.MchrDistance = cc1.MchrDistance
 	}
-	if cc.MchrPositiveTrshld > 0 {
+	if cc1.MchrPositiveTrshld > 0 {
 		cc.MchrPositiveTrshld = cc1.MchrPositiveTrshld
+	}
+	if len(cc1.PprofURL) > 0 {
+		cc.PprofURL = cc1.PprofURL
 	}
 }
 
@@ -193,6 +206,7 @@ func (ccFinal *ConsoleConfig) ParseCLArgs() bool {
 
 	flag.StringVar(&cfgFile, "config-file", "./pixty_console.json", "The console configuration file")
 	flag.StringVar(&cc.LogConfigFN, "log-config", "", "The log4g configuration file name")
+	flag.StringVar(&cc.PprofURL, "pprof-url", "", "The pprof access point, you can set it to localhost:6060 for example and then use pprof tool: \"go tool pprof http://localhost:6060/debug/pprof/heap\" etc. Please refer to https://golang.org/pkg/net/http/pprof/ for details")
 	flag.IntVar(&cc.HttpPort, "port", cc.HttpPort, "The http port the console will listen on")
 	flag.IntVar(&cc.GrpcFPCPPort, "fpcp-port", cc.GrpcFPCPPort, "The gRPC port for serving FPCP from cameras")
 	flag.BoolVar(&help, "help", false, "Prints the usage")

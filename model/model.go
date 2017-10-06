@@ -277,7 +277,11 @@ type (
 		MinFacesCount int
 		// Request only this persons (MaxLastSeenAt and Limit will be disregarded)
 		PersonIds []string
-		// Ored code (refer PQO_XXX)
+		// Min id (not included)
+		MinId *string
+		// match group
+		MatchGroup *int64
+		// Order code (refer PQO_XXX)
 		Order int
 		// How many to select
 		Limit int
@@ -303,6 +307,7 @@ const (
 	PQO_NONE           = 0
 	PQO_LAST_SEEN_DESC = 1
 	PQO_CREATED_AT_ASC = 2
+	PQO_ID_ASC         = 3
 )
 
 func (c *Camera) String() string {

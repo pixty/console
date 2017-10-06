@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/jrivets/inject"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
@@ -34,6 +37,13 @@ func main() {
 
 	injector := inject.NewInjector(log4g.GetLogger("pixty.injector"), log4g.GetLogger("fb.injector"))
 
+	if cc.PprofURL != "" {
+		logger.Info("Will start pprof http on ", cc.PprofURL)
+		go func() {
+			logger.Info(http.ListenAndServe(cc.PprofURL, nil))
+		}()
+	}
+
 	defer injector.Shutdown()
 	defer log4g.Shutdown()
 
@@ -52,11 +62,12 @@ func main() {
 	esender := email.NewEmailSender()
 	faceSweeper := sweeper.NewFacesSweeper()
 	imageSweeper := sweeper.NewImagesSweeper()
+	persSweeper := sweeper.NewOrphPersonsGuardian()
 	mchr := matcher.NewMatcher()
 	matcherCache := matcher.NewMatcherCache()
 
 	injector.RegisterMany(cc, restApi, fpcp, dtaCtrlr, authService, sessService, lbs, esender, imgSrvc)
-	injector.RegisterMany(faceSweeper, imageSweeper)
+	injector.RegisterMany(faceSweeper, imageSweeper, persSweeper)
 	// restAPI provides the interface
 	injector.RegisterOne(restApi, "cam2orgCache")
 	injector.RegisterOne(msqlPersist, "persister")

@@ -237,7 +237,10 @@ func (om *org_matcher) resendPacketsIfLost() {
 func (om *org_matcher) readAllPacksUnblocked() {
 	for {
 		select {
-		case mp := <-om.inpChnl:
+		case mp, ok := <-om.inpChnl:
+			if !ok {
+				return
+			}
 			om.fresh_packets = append(om.fresh_packets, mp)
 		default:
 			return
