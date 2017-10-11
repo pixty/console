@@ -33,6 +33,9 @@ Copied from api.go:
 	// Create new org - will be used by superadmin only
 	a.ge.POST("/orgs", a.h_POST_orgs)
 
+	// Gets all authenticated user's organizations JSON object
+	a.ge.GET("/orgs", a.h_GET_orgs)
+
 	// Gets organization JSON object
 	a.ge.GET("/orgs/:orgId", a.h_GET_orgs_orgId)
 
@@ -88,6 +91,10 @@ Copied from api.go:
 	// removed. It is SNAPSHOT UPDATE
 	a.ge.PUT("/profiles/:prfId", a.h_PUT_profiles_prfId)
 
+	// Merges 2 profiles. It actually just re-assigns all persons with profileId=prf2Id
+	// to prf1Id
+	a.ge.POST("/profiles/:prf1Id/merge/:prf2Id", a.h_POST_profiles_mergeh)
+
 	// Delete the profile
 	a.ge.DELETE("/profiles/:prfId", a.h_DELETE_profiles_prfId)
 
@@ -101,6 +108,13 @@ Copied from api.go:
 	// Both values must be relevant in the request, it is not a PATCH! Ommitting
 	// considered like an empty value, but not ignored!
 	a.ge.PUT("/persons/:persId", a.h_PUT_persons_persId)
+
+	// Creates new profile and assign the profile to the person. The old one will be rewritten
+	// POST /persons/:persId/profiles - o, u, sa
+	a.ge.POST("/persons/:persId/profiles", a.h_POST_persons_persId_profiles)
+
+	// Deletes the person. All faces will be removed too.
+	a.ge.DELETE("/persons/:persId", a.h_DELETE_persons_persId)
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
@@ -116,6 +130,7 @@ Copied from api.go:
 	// hash, so it is user responsibility to get the key from the response and keeps
 	// it safely. If they lost, they have to regenerate.
 	a.ge.POST("/cameras/:camId/newkey", a.h_POST_cameras_camId_newkey)
+
 ```
 
 # How to authenticate

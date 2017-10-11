@@ -218,6 +218,7 @@ type (
 		//returns a mix of Person->[]Face for matcher
 		FindPersonsForMatchCache(orgId, startMg int64, limit int) (*MatcherRecords, error)
 		UpdatePersonMatchGroup(persId string, mg int64) error // apply match group mg to personId
+		DeletePerson(personId string) error
 
 		// ==== FieldInfos ====
 		GetFieldInfo(fldId int64) (*FieldInfo, error)

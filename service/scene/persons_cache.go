@@ -69,12 +69,13 @@ func (pd *person_desc) addIfNeeded(face *model.Face) bool {
 		return true
 	}
 
-	// hardcoded 1 minute diff
-	if pd.faces > 5 && face.CapturedAt-pd.lastFace.CapturedAt < 60000 {
+	// hardcoded 0.5 minute diff
+	diff := face.CapturedAt - pd.lastFace.CapturedAt
+	if pd.faces > 5 && diff < 30000 {
 		return false
 	}
 
-	if face.Rect.Area() > pd.lastFace.Rect.Area() {
+	if face.Rect.Area() > pd.lastFace.Rect.Area() || diff > 120000 {
 		pd.newFace(face)
 		return true
 	}

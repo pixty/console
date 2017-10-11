@@ -26,20 +26,27 @@ import (
 	"gopkg.in/tylerb/graceful.v1"
 )
 
-type api struct {
-	ge           *gin.Engine
-	Config       *common.ConsoleConfig  `inject:""`
-	ImageService *image.ImageService    `inject:""`
-	ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
-	Persister    model.Persister        `inject:"persister"`
-	MainCtx      context.Context        `inject:"mainCtx"`
-	Dc           service.DataController `inject:""`
-	SessService  auth.SessionService    `inject:""`
-	AuthService  auth.AuthService       `inject:""`
-	EmSender     email.Sender           `inject:""`
-	authMW       *auth_middleware
-	logger       log4g.Logger
-}
+type (
+	api struct {
+		ge           *gin.Engine
+		Config       *common.ConsoleConfig  `inject:""`
+		ImageService *image.ImageService    `inject:""`
+		ScnProcessor *scene.SceneProcessor  `inject:"scnProcessor"`
+		Persister    model.Persister        `inject:"persister"`
+		MainCtx      context.Context        `inject:"mainCtx"`
+		Dc           service.DataController `inject:""`
+		SessService  auth.SessionService    `inject:""`
+		AuthService  auth.AuthService       `inject:""`
+		EmSender     email.Sender           `inject:""`
+		authMW       *auth_middleware
+		logger       log4g.Logger
+	}
+
+	error_resp struct {
+		Status       int    `json:"status"`
+		ErrorMessage string `json:"error"`
+	}
+)
 
 const (
 	cScnPersonsMinLimit = 3
@@ -164,6 +171,10 @@ func (a *api) DiPostConstruct() {
 	// removed. It is SNAPSHOT UPDATE
 	a.ge.PUT("/profiles/:prfId", a.h_PUT_profiles_prfId)
 
+	// Merges 2 profiles. It actually just re-assigns all persons with profileId=prf2Id
+	// to prf1Id
+	a.ge.POST("/profiles/:prf1Id/merge/:prf2Id", a.h_POST_profiles_merge)
+
 	// Delete the profile
 	a.ge.DELETE("/profiles/:prfId", a.h_DELETE_profiles_prfId)
 
@@ -177,6 +188,13 @@ func (a *api) DiPostConstruct() {
 	// Both values must be relevant in the request, it is not a PATCH! Ommitting
 	// considered like an empty value, but not ignored!
 	a.ge.PUT("/persons/:persId", a.h_PUT_persons_persId)
+
+	// Creates new profile and assign the profile to the person. The old one will be rewritten
+	// POST /persons/:persId/profiles - o, u, sa
+	a.ge.POST("/persons/:persId/profiles", a.h_POST_persons_persId_profiles)
+
+	// Deletes the person. All faces will be removed too.
+	a.ge.DELETE("/persons/:persId", a.h_DELETE_persons_persId)
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
@@ -690,6 +708,28 @@ func (a *api) h_POST_profiles(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
+// POST /profiles/:prf1Id/merge/:prf2Id
+func (a *api) h_POST_profiles_merge(c *gin.Context) {
+	prf1Id, err := parseInt64Param(c, "prf1Id")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	prf2Id, err := parseInt64Param(c, "prf2Id")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	a.logger.Info("POST /profiles/", prf1Id, "/merge/", prf2Id)
+	aCtx := a.getAuthContext(c)
+
+	if a.errorResponse(c, a.Dc.MergeProfiles(aCtx, prf1Id, prf2Id)) {
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 // GET /profiles/:prfId - o, u, sa
 func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 	prfId, err := parseInt64Param(c, "prfId")
@@ -801,6 +841,53 @@ func (a *api) h_PUT_persons_persId(c *gin.Context) {
 		return
 	}
 	if a.errorResponse(c, a.Dc.UpdatePerson(mp)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// POST /persons/:persId/profiles - o, u, sa
+func (a *api) h_POST_persons_persId_profiles(c *gin.Context) {
+	persId := c.Param("persId")
+	a.logger.Info("POST /persons/", persId, "/profiles")
+
+	var p Profile
+	if a.errorResponse(c, bindAppJson(c, &p)) {
+		return
+	}
+
+	prf, err := a.profile2mprofile(&p)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, aCtx.AuthZHasOrgLevel(prf.OrgId, auth.AUTHZ_LEVEL_OU)) {
+		return
+	}
+
+	pid, err := a.Dc.InsertProfile(prf)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	desc, err := a.Dc.DescribePerson(aCtx, persId, false, false)
+	if a.errorResponse(c, err) {
+		return
+	}
+	desc.Person.ProfileId = pid
+	if a.errorResponse(c, a.Dc.UpdatePerson(desc.Person)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// DELETE /persons/:persId
+func (a *api) h_DELETE_persons_persId(c *gin.Context) {
+	persId := c.Param("persId")
+	a.logger.Debug("DELETE /persons/", persId)
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, a.Dc.DeletePerson(aCtx, persId)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -1050,7 +1137,7 @@ func (a *api) errorResponse(c *gin.Context, err error) bool {
 
 	if common.CheckError(err, common.ERR_NOT_FOUND) {
 		a.logger.Warn("Not Found err=", err)
-		c.JSON(http.StatusNotFound, err.Error())
+		c.JSON(http.StatusNotFound, &error_resp{http.StatusNotFound, err.Error()})
 		return true
 	}
 
@@ -1065,18 +1152,18 @@ func (a *api) errorResponse(c *gin.Context, err error) bool {
 
 	if common.CheckError(err, common.ERR_UNAUTHORIZED) {
 		a.logger.Warn("Unauthorized request for ", reqOp(c), " err=", err)
-		c.JSON(http.StatusForbidden, err.Error())
+		c.JSON(http.StatusForbidden, &error_resp{http.StatusForbidden, err.Error()})
 		return true
 	}
 
 	if common.CheckError(err, common.ERR_INVALID_VAL) || common.CheckError(err, common.ERR_LIMIT_VIOLATION) {
 		a.logger.Warn("Bad request for ", reqOp(c), " err=", err)
-		c.JSON(http.StatusBadRequest, err.Error())
+		c.JSON(http.StatusBadRequest, &error_resp{http.StatusBadRequest, err.Error()})
 		return true
 	}
 
 	a.logger.Warn("Bad request err=", err)
-	c.JSON(http.StatusInternalServerError, err.Error())
+	c.JSON(http.StatusInternalServerError, &error_resp{http.StatusInternalServerError, err.Error()})
 	return true
 }
 

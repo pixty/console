@@ -922,6 +922,12 @@ func (mpp *msql_part_tx) FindPersonsForMatchCache(orgId, startMg int64, limit in
 	return res, nil
 }
 
+func (mpp *msql_part_tx) DeletePerson(personId string) error {
+	mpp.logger.Debug("Delete person with person_id=", personId)
+	_, err := mpp.executor().Exec("DELETE FROM person WHERE id=?", personId)
+	return err
+}
+
 // =========== Field Infos
 func (mpp *msql_part_tx) GetFieldInfo(fldId int64) (*FieldInfo, error) {
 	rows, err := mpp.executor().Query("SELECT id, org_id, field_type, display_name FROM field_info WHERE id=?", fldId)

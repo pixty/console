@@ -118,6 +118,7 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 	// Filtering faces through the cache. Some faces can be rejected due to the cache rules
 	f2f := make(map[int]*model.Face)
 	if len(scene.Faces) > 0 {
+		skpdPers := make([]string, 0, 1)
 		for i, f := range scene.Faces {
 			// toFace sets PersonId, Rect and V128D
 			face, err := sp.toFace(f)
@@ -133,7 +134,13 @@ func (sp *SceneProcessor) OnFPCPScene(camId int64, scene *fpcp.Scene) error {
 				f2f[i] = face
 			} else {
 				sp.logger.Debug("Drop the face for personId=", face.PersonId, ", by the cache rules.")
+				skpdPers = append(skpdPers, face.PersonId)
 			}
+		}
+
+		if len(skpdPers) > 0 {
+			// update last seen time
+			sp.updateLastSeenTime(skpdPers, scene.Frame.Timestamp)
 		}
 	}
 
@@ -269,6 +276,14 @@ func (sp *SceneProcessor) GetTimelineView(camId int64, maxTs common.Timestamp, l
 }
 
 // ------------------------------ Private ------------------------------------
+func (sp *SceneProcessor) updateLastSeenTime(persIds []string, captAt uint64) {
+	pp, err := sp.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return
+	}
+	pp.UpdatePersonsLastSeenAt(persIds, captAt)
+}
+
 func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) error {
 	sp.logger.Debug("Updating ", len(faces), " faces into DB")
 	pp, err := sp.Persister.GetPartitionTx("FAKE")

@@ -49,10 +49,12 @@ type (
 		UpdateProfile(prf *model.Profile) error
 		DeleteProfile(aCtx auth.Context, orgId int64) error
 		GetProfile(prfId int64) (*model.Profile, error)
+		MergeProfiles(aCtx auth.Context, prf1Id, prf2Id int64) error
 
 		// Persons
 		DescribePerson(aCtx auth.Context, pId string, includeDetails, includeMeta bool) (*PersonDesc, error)
 		UpdatePerson(mp *model.Person) error
+		DeletePerson(aCtx auth.Context, personId string) error
 	}
 
 	OrgDesc struct {
@@ -392,6 +394,45 @@ func (dc *dta_controller) GetProfile(prfId int64) (*model.Profile, error) {
 	return mpp.GetProfileById(prfId)
 }
 
+func (dc *dta_controller) MergeProfiles(aCtx auth.Context, prf1Id, prf2Id int64) error {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	err = mpp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mpp.Commit()
+
+	p1, err := mpp.GetProfileById(prf1Id)
+	if err != nil {
+		return err
+	}
+	p2, err := mpp.GetProfileById(prf2Id)
+	if err != nil {
+		return err
+	}
+
+	err = aCtx.AuthZHasOrgLevel(p1.OrgId, auth.AUTHZ_LEVEL_OU)
+	if err != nil {
+		return err
+	}
+
+	if p1.OrgId != p2.OrgId {
+		dc.logger.Debug("MergeProfiles: profiles are from different orgs. p1=", p1, ", p2=", p2)
+		return common.NewError(common.ERR_NOT_FOUND, "Could not find profile by id="+strconv.FormatInt(prf2Id, 10))
+	}
+
+	// Updating all persons with profileId=prf2Id to prf1Id
+	err = mpp.UpdatePersonsProfileId(prf2Id, prf1Id)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
+	return nil
+}
+
 func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
 	mpp, err := dc.Persister.GetPartitionTx("FAKE")
 	if err != nil {
@@ -581,6 +622,52 @@ func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 	p.PictureId = mp.PictureId
 	p.ProfileId = mp.ProfileId
 	return pp.UpdatePerson(p)
+}
+
+func (dc *dta_controller) DeletePerson(aCtx auth.Context, personId string) error {
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	err = mpp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mpp.Commit()
+
+	p, err := mpp.GetPersonById(personId)
+	if err != nil {
+		return err
+	}
+
+	err = aCtx.AuthZCamAccess(p.CamId, auth.AUTHZ_LEVEL_OU)
+	if err != nil {
+		return err
+	}
+
+	faces, err := mpp.FindFaces(&model.FacesQuery{PersonIds: []string{personId}, Short: true})
+	if err != nil {
+		return err
+	}
+
+	fcsIds := make([]int64, len(faces))
+	for i, fc := range faces {
+		fcsIds[i] = fc.Id
+	}
+
+	err = mpp.DeleteFaces(fcsIds)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
+
+	err = mpp.DeletePerson(personId)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
+
+	return nil
 }
 
 func checkFieldInfo(fi *model.FieldInfo, orgId int64) error {
