@@ -1173,6 +1173,7 @@ func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {
 		}
 		if prsnDesc.Person.MatchGroup > 0 {
 			p.Matches = mchs
+			a.normalizeMatchesList(p)
 		}
 	}
 	p.Pictures = a.facesToPictureInfos(prsnDesc.Faces)
@@ -1206,6 +1207,7 @@ func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 		m2p, ok := mg2Profs[p.MatchGroup]
 		if ok {
 			prsn.Matches = m2p
+			a.normalizeMatchesList(prsn)
 		}
 		stl.Persons[i] = prsn
 	}
@@ -1217,12 +1219,37 @@ func (a *api) toSceneTimeline(scnTl *scene.SceneTimeline) *SceneTimeline {
 	return stl
 }
 
+// Removes profile from matches list if the profile is already assigned to the person
+func (a *api) normalizeMatchesList(p *Person) {
+	prfId := ptr2int64(p.ProfileId, 0)
+	if prfId == 0 || len(p.Matches) == 0 {
+		return
+	}
+	for i, m := range p.Matches {
+		if m.Id == prfId {
+			b := make([]*Profile, len(p.Matches))
+			copy(b, p.Matches)
+			p.Matches = append(b[:i], b[i:]...)
+			return
+		}
+	}
+}
+
 func (a *api) mperson2person(p *model.Person, profs map[int64]*Profile) *Person {
 	ps := new(Person)
 	ps.Id = p.Id
 	ps.AvatarUrl = a.imgURL(p.PictureId)
 	ps.LastSeenAt = common.Timestamp(p.LastSeenAt).ToISO8601Time()
 	ps.ProfileId = toPtrInt64(p.ProfileId)
+
+	if p.ProfileId > 0 {
+		ps.MatchingResult = "identified"
+	} else if p.MatchGroup > 0 {
+		ps.MatchingResult = "ambiguous"
+	} else {
+		ps.MatchingResult = "matching"
+	}
+
 	if profs != nil {
 		if pr, ok := profs[p.ProfileId]; ok {
 			ps.Profile = pr

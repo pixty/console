@@ -61,6 +61,8 @@ type (
 	face_cmp_params struct {
 		positiveTshld float32
 		maxDistance   float64
+
+		logger log4g.Logger
 	}
 )
 
@@ -85,6 +87,7 @@ func (m *matcher) DiPostConstruct() {
 	m.orgMatchers = make(map[int64]*org_matcher)
 	m.cmp_params.maxDistance = m.CConfig.MchrDistance
 	m.cmp_params.positiveTshld = float32(m.CConfig.MchrPositiveTrshld) / 100.0
+	m.cmp_params.logger = log4g.GetLogger("pixty.MATCHING_LOG")
 }
 
 // ============================== Matcher ====================================
@@ -280,6 +283,7 @@ func (om *org_matcher) processFaces() {
 				mr := fd.compareWithCacheBlock(cBlk, &om.matcher.cmp_params)
 				comps++
 				if mr != nil {
+					om.matcher.cmp_params.logger.Debug("Matched faceId=", fd.face.Id, " for persId=", pd.person.Id, " with ", mr)
 					cBlk.onMatch(pd.toMatcherRecord(), mr)
 					delete(om.mchngPers, pd.person.Id)
 					continue pdLoop
@@ -351,10 +355,12 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 		} else {
 			fd.state = FD_STATE_MIDL
 		}
+		fcp.logger.Trace("New state for ", fd)
 	} else if cb.startIdx == 0 && fd.state == FD_STATE_MIDL {
 		fd.endIdx = fd.startIdx
 		fd.startIdx = 0
 		fd.state = FD_STATE_FRMSTART
+		fcp.logger.Trace("Set state to FD_STATE_FRMSTART for ", fd)
 	}
 
 	// startIndex inclusive should be checked
@@ -364,13 +370,15 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 
 	if cmpStart > cb.endIdx || cmpEnd < cb.startIdx {
 		fd.state = FD_STATE_END
-		log4g.GetLogger("pixty.Matcher").Warn("Strange things happen, we have fd=", fd,
+		fcp.logger.Warn("Strange things happen, we have fd=", fd,
 			", which doesn't fit by indexes with cb=", cb, ", marking it as we done with this!")
 		return nil
 	}
 
+	startIdx := cb.getInsertIdx(cmpStart)
 	endIdx := cb.getInsertIdx(cmpEnd)
-	for i := cb.getInsertIdx(cmpStart); i < endIdx; i++ {
+	fcp.logger.Trace("Will compare ", fd, " with ", cb, " cmpStart=", cmpStart, ", cmpEnd=", cmpEnd, " startIdx=", startIdx, ", endIdx=", endIdx)
+	for i := startIdx; i < endIdx; i++ {
 		mr := cb.records.Records[i]
 		if fd.matchWithCacheRecord(mr, fcp) {
 			fd.state = FD_STATE_END
@@ -389,10 +397,17 @@ func (fd *face_desc) compareWithCacheBlock(cb *cache_block, fcp *face_cmp_params
 func (fd *face_desc) matchWithCacheRecord(mr *model.MatcherRecord, fcp *face_cmp_params) bool {
 	total := len(mr.Faces)
 	needed := gorivets.Max(1, int(float32(total)*fcp.positiveTshld+0.5))
+	if fcp.logger.GetLevel() >= log4g.TRACE {
+		fcp.logger.Trace(">>> Comparing ", total, " record faces with fd=", fd, ", needed=", needed, ", fcp.positiveTshld=", fcp.positiveTshld, ", fcp.maxDistance=", fcp.maxDistance, ", with persId=", mr.Person.Id)
+	}
 	for i := 0; needed > 0 && needed+i <= total; i++ {
-		if common.MatchAdvanced2V128D(fd.face.V128D, mr.Faces[i].V128D, fcp.maxDistance) {
+		if common.MatchAdvancedV128D(fd.face.V128D, mr.Faces[i].V128D, fcp.maxDistance) {
 			needed--
+			fcp.logger.Trace("Positive match with faceId=", mr.Faces[i].Id, ", needed=", needed)
+		} else {
+			fcp.logger.Trace("Negative match with faceId=", mr.Faces[i].Id, ", needed=", needed)
 		}
 	}
+	fcp.logger.Trace("<<< done for ", fd, ", needed=", needed)
 	return needed == 0
 }

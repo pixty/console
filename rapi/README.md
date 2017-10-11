@@ -187,3 +187,17 @@ curl 'http://api.pixty.io/persons/014aa697-45ae-4cfe-bbc7-3ea6e055a386?details=t
 
 // Get a camera (ptt) timeline
 curl https://api.pixty.io/cameras/ptt/timeline
+
+# New organization Example
+
+// create new org
+curl -v -u super:123 -H "Content-Type: application/json" -X POST -d '{"name": "switch"}' https://api.pixty.io/orgs
+
+>>> Location: https://api.pixty.io/orgs/3
+
+// create the org admin 
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "switchadmin"}' http://api.pixty.io/users
+curl -v -H "Content-Type: application/json" -u switchadmin: -XPOST -d '{"password":"switch123"}' https://api.pixty.io/users/switchadmin/password
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "switchadmin", "orgId": 3, "role":"orgadmin"}' -u super:123 https://api.pixty.io/orgs/3/userRoles
+
+// create 

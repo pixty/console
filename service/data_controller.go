@@ -426,6 +426,10 @@ func (dc *dta_controller) UpdateProfile(prf *model.Profile) error {
 		return err
 	}
 
+	if prf.PictureId == "" {
+		prf.PictureId = p.PictureId
+	}
+
 	err = mpp.UpdateProfile(prf)
 	if err != nil {
 		mpp.Rollback()

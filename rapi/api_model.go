@@ -65,11 +65,12 @@ type (
 	}
 
 	Person struct {
-		Id         string             `json:"id"`
-		CamId      *int64             `json:"camId,omitempty"`
-		LastSeenAt common.ISO8601Time `json:"lastSeenAt"`
-		AvatarUrl  string             `json:"avatarUrl"`
-		ProfileId  *int64             `json:"profileId,omitempty"`
+		Id             string             `json:"id"`
+		CamId          *int64             `json:"camId,omitempty"`
+		LastSeenAt     common.ISO8601Time `json:"lastSeenAt"`
+		AvatarUrl      string             `json:"avatarUrl"`
+		ProfileId      *int64             `json:"profileId,omitempty"`
+		MatchingResult string             `json:"matchingResult"`
 
 		// Contains Person <-> profile association. Could be nil, if there is
 		// no such association. This assignment is done manually only.

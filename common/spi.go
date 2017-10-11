@@ -182,18 +182,6 @@ func MatchAdvancedV128D(v1, v2 V128D, d float64) bool {
 	return math.Sqrt(sum) < d
 }
 
-func MatchAdvanced2V128D(v1, v2 V128D, dd float64) bool {
-	var sum float64 = 0.0
-	for i := 0; i < 128; i++ {
-		v := float64(v1[i]) - float64(v2[i])
-		sum += v * v
-		if sum > dd {
-			return false
-		}
-	}
-	return sum < dd
-}
-
 func MatchV128D(v1, v2 V128D, d float64) bool {
 	var sum float64 = 0.0
 	for i := 0; i < 128; i++ {
