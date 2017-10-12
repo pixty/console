@@ -53,8 +53,10 @@ type (
 
 		// Persons
 		DescribePerson(aCtx auth.Context, pId string, includeDetails, includeMeta bool) (*PersonDesc, error)
+		DescribePersonsByProfile(aCtx auth.Context, prfId int64) ([]*PersonDesc, error)
 		UpdatePerson(mp *model.Person) error
 		DeletePerson(aCtx auth.Context, personId string) error
+		DeletePersonFaces(aCtx auth.Context, personId string, faceIds []string) error
 	}
 
 	OrgDesc struct {
@@ -583,6 +585,67 @@ func (dc *dta_controller) DescribePerson(aCtx auth.Context, pId string, includeD
 	return res, nil
 }
 
+// get all persons associated with the profile, persons will contain only person data and faces
+func (dc *dta_controller) DescribePersonsByProfile(aCtx auth.Context, prfId int64) ([]*PersonDesc, error) {
+	pp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return nil, err
+	}
+	//transaction
+	err = pp.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer pp.Commit()
+
+	pers, err := pp.FindPersons(&model.PersonsQuery{ProfileId: &prfId})
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]*PersonDesc, 0, len(pers))
+	if len(pers) == 0 {
+		return res, nil
+	}
+
+	err = aCtx.AuthZCamAccess(pers[0].CamId, auth.AUTHZ_LEVEL_OU)
+	if err != nil {
+		return res, err
+	}
+
+	// Fake profile
+	prf := &model.Profile{Id: prfId}
+	pm := map[int64]*model.Profile{prfId: prf}
+
+	prsIds := make([]string, len(pers))
+	persMap := make(map[string]*PersonDesc)
+	for i, p := range pers {
+		prsIds[i] = p.Id
+		pd := new(PersonDesc)
+		pd.Faces = make([]*model.Face, 0, 1)
+		pd.Person = p
+		pd.Profiles = pm
+		persMap[p.Id] = pd
+		res = append(res, pd)
+	}
+
+	faces, err := pp.FindFaces(&model.FacesQuery{PersonIds: prsIds})
+	if err != nil {
+		return res, err
+	}
+
+	for _, f := range faces {
+		pd, ok := persMap[f.PersonId]
+		if ok {
+			pd.Faces = append(pd.Faces, f)
+		} else {
+			dc.logger.Error("DescribePersonsByProfile(): very strange - there is no descriptor for personId=", f.PersonId, ", but there is a face=", f)
+		}
+	}
+
+	return res, nil
+}
+
 func (dc *dta_controller) UpdatePerson(mp *model.Person) error {
 	dc.logger.Debug("UpdatePerson(): person=", mp)
 	pp, err := dc.Persister.GetPartitionTx("FAKE")
@@ -667,6 +730,70 @@ func (dc *dta_controller) DeletePerson(aCtx auth.Context, personId string) error
 		return err
 	}
 
+	return nil
+}
+
+func (dc *dta_controller) DeletePersonFaces(aCtx auth.Context, personId string, faceIds []string) error {
+	if len(faceIds) == 0 {
+		return nil
+	}
+
+	mpp, err := dc.Persister.GetPartitionTx("FAKE")
+	if err != nil {
+		return err
+	}
+	err = mpp.Begin()
+	if err != nil {
+		return err
+	}
+	defer mpp.Commit()
+
+	p, err := mpp.GetPersonById(personId)
+	if err != nil {
+		return err
+	}
+
+	err = aCtx.AuthZCamAccess(p.CamId, auth.AUTHZ_LEVEL_OU)
+	if err != nil {
+		return err
+	}
+
+	faces, err := mpp.FindFaces(&model.FacesQuery{PersonIds: []string{personId}, Short: true})
+	if err != nil {
+		return err
+	}
+
+	facesToDel := make(map[int64]int64)
+	for _, fid := range faceIds {
+		id, err := strconv.ParseInt(fid, 10, 64)
+		if err != nil {
+			dc.logger.Warn("DeletePersonFaces: cannot parse ", fid, " to int64, err=", err)
+			return err
+		}
+		facesToDel[id] = id
+	}
+
+	fcsIds := make([]int64, 0, len(facesToDel))
+	for _, fc := range faces {
+		if _, ok := facesToDel[fc.Id]; ok {
+			fcsIds = append(fcsIds, fc.Id)
+			delete(facesToDel, fc.Id)
+			if len(facesToDel) == 0 {
+				break
+			}
+		}
+	}
+
+	for k, _ := range facesToDel {
+		mpp.Rollback()
+		return common.NewError(common.ERR_NOT_FOUND, "Unknown faceId="+strconv.FormatInt(k, 10))
+	}
+
+	err = mpp.DeleteFaces(fcsIds)
+	if err != nil {
+		mpp.Rollback()
+		return err
+	}
 	return nil
 }
 

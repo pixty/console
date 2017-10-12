@@ -278,6 +278,8 @@ type (
 		MinFacesCount int
 		// Request only this persons (MaxLastSeenAt and Limit will be disregarded)
 		PersonIds []string
+		// Request persons by profile_id
+		ProfileId *int64
 		// Min id (not included)
 		MinId *string
 		// match group

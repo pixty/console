@@ -166,6 +166,9 @@ func (a *api) DiPostConstruct() {
 	// Gets profile by its id. Only not empty fields will be returned(!)
 	a.ge.GET("/profiles/:prfId", a.h_GET_profiles_prfId)
 
+	// Gets profile persons by its id. Persons will not contain profile or matches references
+	a.ge.GET("/profiles/:prfId/persons", a.h_GET_profiles_prfId_persons)
+
 	// Updates profile AvatarUrl and list values. All fieds will be updated like
 	// provided. It is not a PATCH, if a field is not set, it is considered as
 	// removed. It is SNAPSHOT UPDATE
@@ -195,6 +198,9 @@ func (a *api) DiPostConstruct() {
 
 	// Deletes the person. All faces will be removed too.
 	a.ge.DELETE("/persons/:persId", a.h_DELETE_persons_persId)
+
+	// Deletes a person faces
+	a.ge.DELETE("/persons/:persId/faces", a.h_DELETE_persons_persId_faces)
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
@@ -737,7 +743,7 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 		return
 	}
 
-	a.logger.Info("GET /profiles/", prfId)
+	a.logger.Debug("GET /profiles/", prfId)
 
 	p, err := a.Dc.GetProfile(prfId)
 	if a.errorResponse(c, err) {
@@ -750,6 +756,23 @@ func (a *api) h_GET_profiles_prfId(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, a.mprofile2profile(p))
+}
+
+// GET /profiles/:prfId/persons
+func (a *api) h_GET_profiles_prfId_persons(c *gin.Context) {
+	prfId, err := parseInt64Param(c, "prfId")
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	a.logger.Debug("GET /profiles/", prfId, "persons")
+	aCtx := a.getAuthContext(c)
+	pds, err := a.Dc.DescribePersonsByProfile(aCtx, prfId)
+	if a.errorResponse(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, a.prsnDescs2Persons(pds))
 }
 
 // Updates profile. All provided values will be replaced, all other ones will be lost
@@ -888,6 +911,23 @@ func (a *api) h_DELETE_persons_persId(c *gin.Context) {
 	a.logger.Debug("DELETE /persons/", persId)
 	aCtx := a.getAuthContext(c)
 	if a.errorResponse(c, a.Dc.DeletePerson(aCtx, persId)) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// DELETE /persons/:persId/faces
+func (a *api) h_DELETE_persons_persId_faces(c *gin.Context) {
+	persId := c.Param("persId")
+	a.logger.Debug("DELETE /persons/", persId, "/faces")
+
+	faceIds := []string{}
+	if a.errorResponse(c, bindAppJson(c, &faceIds)) {
+		return
+	}
+
+	aCtx := a.getAuthContext(c)
+	if a.errorResponse(c, a.Dc.DeletePersonFaces(aCtx, persId, faceIds)) {
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -1247,6 +1287,14 @@ func (a *api) cam2mcam(cam *Camera) *model.Camera {
 	return mcam
 }
 
+func (a *api) prsnDescs2Persons(prsnDescs []*service.PersonDesc) []*Person {
+	res := make([]*Person, len(prsnDescs))
+	for i, pd := range prsnDescs {
+		res[i] = a.prsnDesc2Person(pd)
+	}
+	return res
+}
+
 func (a *api) prsnDesc2Person(prsnDesc *service.PersonDesc) *Person {
 	p := a.mperson2person(prsnDesc.Person, nil)
 	if prsnDesc.Profiles != nil {
@@ -1408,7 +1456,7 @@ func (a *api) facesToPictureInfos(faces []*model.Face) []*PictureInfo {
 
 func (a *api) faceToPictureInfo(face *model.Face) *PictureInfo {
 	pi := new(PictureInfo)
-	pi.Id = face.FaceImageId
+	pi.Id = strconv.FormatInt(face.Id, 10)
 	fUrl := a.imgURL(face.FaceImageId)
 	pi.FaceURL = &fUrl
 	pi.PicURL = a.imgURL(face.ImageId)

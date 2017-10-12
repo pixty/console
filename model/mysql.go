@@ -724,6 +724,11 @@ func (mpp *msql_part_tx) FindPersons(pQuery *PersonsQuery) ([]*Person, error) {
 		whereParams = append(whereParams, *pQuery.MatchGroup)
 	}
 
+	if pQuery.ProfileId != nil {
+		whereCond = append(whereCond, "p.profile_id = ?")
+		whereParams = append(whereParams, *pQuery.ProfileId)
+	}
+
 	if pQuery.MinId != nil {
 		whereCond = append(whereCond, "p.id > ?")
 		whereParams = append(whereParams, *pQuery.MinId)

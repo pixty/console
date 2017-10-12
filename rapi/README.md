@@ -86,6 +86,9 @@ Copied from api.go:
 	// Gets profile by its id. Only not empty fields will be returned(!)
 	a.ge.GET("/profiles/:prfId", a.h_GET_profiles_prfId)
 
+	// Gets profile persons by its id. Persons will not contain profile or matches references
+	a.ge.GET("/profiles/:prfId/persons", a.h_GET_profiles_prfId_persons)
+
 	// Updates profile AvatarUrl and list values. All fieds will be updated like
 	// provided. It is not a PATCH, if a field is not set, it is considered as
 	// removed. It is SNAPSHOT UPDATE
@@ -93,7 +96,7 @@ Copied from api.go:
 
 	// Merges 2 profiles. It actually just re-assigns all persons with profileId=prf2Id
 	// to prf1Id
-	a.ge.POST("/profiles/:prf1Id/merge/:prf2Id", a.h_POST_profiles_mergeh)
+	a.ge.POST("/profiles/:prf1Id/merge/:prf2Id", a.h_POST_profiles_merge)
 
 	// Delete the profile
 	a.ge.DELETE("/profiles/:prfId", a.h_DELETE_profiles_prfId)
@@ -115,6 +118,9 @@ Copied from api.go:
 
 	// Deletes the person. All faces will be removed too.
 	a.ge.DELETE("/persons/:persId", a.h_DELETE_persons_persId)
+
+	// Deletes a person faces
+	a.ge.DELETE("/persons/:persId/faces", a.h_DELETE_persons_persId_faces)
 
 	// Gets list of cameras for the orgId (right now orgId=1), which comes from
 	// the authorization of the call
@@ -176,9 +182,6 @@ curl -u pixtyadmin:ljkjlj  http://api.pixty.io/orgs/1/fields
 // create new camera
 curl -v -u pixtyAdmin:123 -H "Content-Type: application/json" -XPOST -d '{"name": "Pixty Test Camera"}'  http://localhost:8080/orgs/1/cameras
 
-// get list of cameras (for orgId=1 so far...)
-curl http://api.pixty.io/cameras
-
 // generate new secret key - will be sent once
 curl -v -XPOST 'http://api.pixty.io/cameras/1/newkey'
 
@@ -211,8 +214,16 @@ curl -v -u super:123 -H "Content-Type: application/json" -X POST -d '{"name": "s
 >>> Location: https://api.pixty.io/orgs/3
 
 // create the org admin 
-curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "switchadmin"}' http://api.pixty.io/users
+curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "switchadmin"}' https://api.pixty.io/users
 curl -v -H "Content-Type: application/json" -u switchadmin: -XPOST -d '{"password":"switch123"}' https://api.pixty.io/users/switchadmin/password
 curl -v -H "Content-Type: application/json" -XPOST -d '{"login": "switchadmin", "orgId": 3, "role":"orgadmin"}' -u super:123 https://api.pixty.io/orgs/3/userRoles
 
-// create 
+// create data fields
+curl -v -u houseadmin:123 -H "Content-Type: application/json" -X POST -d '[{"fieldName": "First Name", "fieldType": "text"}, { "fieldName": "Last Name", "fieldType": "text"}]' https://api.pixty.io/orgs/4/fields
+
+// create new camera
+curl -v -u houseAdmin:123 -H "Content-Type: application/json" -XPOST -d '{"name": "Home sweet home"}'  https://api.pixty.io/orgs/4/cameras
+
+// generates new camera password
+curl -v -u houseadmin:123 -XPOST 'http://api.pixty.io/cameras/3/newkey'
+{"id":3,"name":"Home sweet home","orgId":4,"hasSecretKey":true,"secretKey":"4UC@CCRkL1"}
