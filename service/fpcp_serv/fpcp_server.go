@@ -124,7 +124,7 @@ func (fs *FPCPServer) onDropSession(sid, ci interface{}) {
 }
 
 func (fs *FPCPServer) checkSession(ctx context.Context) int64 {
-	md, ok := metadata.FromContext(ctx)
+	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		sess := getFirstValue(md, mtKeySessionId)
 		ci, ok := fs.sessions.Get(sess)
