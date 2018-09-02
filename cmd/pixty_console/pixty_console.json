@@ -6,7 +6,7 @@
 	"GrpcFPCPSessCapacity":10000,
 	"DebugMode":true,
 	"MysqlDatasource":"pixty@/pixty?charset=utf8",
-	"LbsDir":"",
+	"LbsDir":"/tmp/pixty/store",
 	"LbsMaxSize":"20g",
 	"ImgsPrefix": "",
 	"ImgsTmpTTLSec": 60
