@@ -1,13 +1,15 @@
 {
 	"LogConfigFN":"",
-	"HttpPort":8080,
+	"HttpPort":9080,
 	"HttpDebugMode":false,
 	"GrpcFPCPPort":50051,
 	"GrpcFPCPSessCapacity":10000,
 	"DebugMode":true,
-	"MysqlDatasource":"pixty@/pixty?charset=utf8",
+	"MysqlDatasource":"root@/pixty?charset=utf8",
 	"LbsDir":"/tmp/pixty/store",
 	"LbsMaxSize":"20g",
 	"ImgsPrefix": "",
-	"ImgsTmpTTLSec": 60
+	"ImgsTmpTTLSec": 60,
+	"MchrDistance": 0.4,
+	"SweepOrphPersonsMins": 1
 }

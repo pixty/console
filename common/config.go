@@ -100,13 +100,13 @@ func (cc *ConsoleConfig) String() string {
 // Set up default config values
 func NewConsoleConfig() *ConsoleConfig {
 	cc := &ConsoleConfig{}
-	cc.HttpPort = 8080
+	cc.HttpPort = 9080
 	cc.GrpcFPCPPort = 50051
 	cc.GrpcFPCPSessCapacity = 10000
 	cc.MysqlDatasource = "pixty@/pixty?charset=utf8mb4"
 	cc.LbsDir = "/opt/pixty/store"
 	cc.LbsMaxSize = "20G"
-	cc.ImgsPrefix = "http://127.0.0.1:8080/images/"
+	cc.ImgsPrefix = "http://127.0.0.1:9080/images/"
 	cc.ImgsTmpTTLSec = 60
 	cc.AuthMaxSessions = 3               // same user can open up to 3 sessions (so far, then will reduce)
 	cc.AuthSessionTOSec = 300            // kick it out in 5 minutes
@@ -116,7 +116,7 @@ func NewConsoleConfig() *ConsoleConfig {
 	cc.SweepImagesToSec = 60
 	cc.SweepImagesPackSize = 1000
 	cc.SweepImagesPackSizePauseMs = 5
-	cc.SweepOrphPersonsMins = 10
+	cc.SweepOrphPersonsMins = 1
 	cc.MchrCacheSize = 1000000     // 1 million is max so far
 	cc.MchrCachePerOrgSize = 50000 // vectors per org looks reasonable
 	cc.MchrPositiveTrshld = 30     // 30% should be within required distance at least

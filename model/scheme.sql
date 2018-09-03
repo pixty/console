@@ -1,8 +1,8 @@
-CREATE DATABASE IF NOT EXISTS `pixty_test`
+CREATE DATABASE IF NOT EXISTS `pixty`
 	DEFAULT CHARACTER SET utf8
 	DEFAULT COLLATE utf8_bin;
 
-USE pixty_test;
+USE pixty;
 
 #DROP TABLE IF EXISTS `organization`;
 #DROP TABLE IF EXISTS `field_info`;
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `face` (
 CREATE TABLE IF NOT EXISTS `profile` (
 	`id`                     BIGINT(20)      NOT NULL AUTO_INCREMENT,
 	`org_id`                 BIGINT(20)      NOT NULL,
-	`picture_id`             VARCHAR(255)     NOT NULL, 
+	`picture_id`             VARCHAR(255)     NOT NULL,
 	PRIMARY KEY (`id`),
 	UNIQUE `id_idx` USING BTREE (id),
 	INDEX `org_id_idx` USING BTREE (org_id)
@@ -120,18 +120,18 @@ CREATE TABLE IF NOT EXISTS `profile` (
 CREATE TABLE IF NOT EXISTS `profile_meta` (
 	`profile_id`                 BIGINT(20)      NOT NULL,
 	`field_id`                   BIGINT(20)      NOT NULL,
-	`value`                      VARCHAR(16000)  NOT NULL, 
+	`value`                      VARCHAR(16000)  NOT NULL,
 	UNIQUE `profile_id_field_id_idx` USING BTREE (profile_id, field_id),
 	FOREIGN KEY (`field_id`) REFERENCES field_info(id) ON DELETE CASCADE,
-	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
+	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 CREATE TABLE IF NOT EXISTS `profile_kvs` (
 	`profile_id`                 BIGINT(20)      NOT NULL,
 	`key`                        VARCHAR(100)    NOT NULL,
-	`value`                      VARCHAR(16000)  NOT NULL, 
+	`value`                      VARCHAR(16000)  NOT NULL,
 	UNIQUE `profile_id_key_idx` USING BTREE (profile_id, `key`),
-	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE	
+	FOREIGN KEY (`profile_id`) REFERENCES profile(id) ON DELETE CASCADE
 ) ENGINE=`InnoDB` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=COMPACT CHECKSUM=0 DELAY_KEY_WRITE=0;
 
 
@@ -166,7 +166,7 @@ FOR EACH ROW BEGIN
   CALL proc_dec_picture_ref(OLD.image_id);
   CALL proc_dec_picture_ref(OLD.face_image_id);
 END;
-| 
+|
 CREATE TRIGGER trgr_new_person AFTER INSERT ON person
 FOR EACH ROW BEGIN
   CALL proc_inc_picture_ref(NEW.picture_id);
@@ -184,7 +184,7 @@ CREATE TRIGGER trgr_del_person BEFORE DELETE ON person
 FOR EACH ROW BEGIN
   CALL proc_dec_picture_ref(OLD.picture_id);
 END;
-| 
+|
 CREATE TRIGGER trgr_new_profile AFTER INSERT ON profile
 FOR EACH ROW BEGIN
   CALL proc_inc_picture_ref(NEW.picture_id);
@@ -218,6 +218,25 @@ DROP TRIGGER trgr_update_profile;
 DROP TRIGGER trgr_del_profile;
 
 
-#After creation for test camera
-#insert into organization(id, name) values(1, 'pixty');
-#insert into camera(id, org_id, secret_key) values("ptt", 1, "1234");
+INSERT INTO `camera` (`id`, `name`, `org_id`, `secret_key`)
+VALUES
+  (1,X'74657374',1,X'59716A675873637A633436374750586C722B32586A66386279646749634665396F442B344A4D65333968673D');
+
+INSERT INTO `field_info` (`id`, `org_id`, `field_type`, `display_name`)
+VALUES
+  (1,1,'name','Имя');
+
+INSERT INTO `organization` (`id`, `name`)
+VALUES
+  (1,'pixty');
+
+
+INSERT INTO `user` (`id`, `login`, `email`, `salt`, `hash`)
+VALUES
+  (1,'test','','D8pA-yPe03pS_Ewhkq2','GFVc90WQzfpy+/PRNc8b5nE428wUdjYhQW+sOgFajLM=');
+
+
+INSERT INTO `user_role` (`login`, `org_id`, `role`)
+VALUES
+  ('test',1,'15');
+
