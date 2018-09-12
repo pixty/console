@@ -284,6 +284,70 @@ func (sp *SceneProcessor) updateLastSeenTime(persIds []string, captAt uint64) {
 	pp.UpdatePersonsLastSeenAt(persIds, captAt)
 }
 
+func (sp *SceneProcessor) removeDuplicatesUnordered(elements []string) []string {
+    encountered := map[string]bool{}
+
+    for v:= range elements {
+        encountered[elements[v]] = true
+    }
+
+    result := []string{}
+    for key, _ := range encountered {
+        result = append(result, key)
+    }
+    return result
+}
+
+func (sp *SceneProcessor) findProfileForFaces(currentFaces []*model.Face) (int64, error) {
+
+	sp.logger.Debug("Looking for currentFaces ", len(currentFaces))
+	pp, err := sp.Persister.GetPartitionTx("faces")
+	faces, err := pp.FindFaces(&model.FacesQuery{})
+	if err != nil {
+		return 0, err;
+	}
+
+	persons := []string{}
+
+	for _, face := range faces {
+		for _, currentFace := range currentFaces {
+			if (common.MatchAdvancedV128D(face.V128D, currentFace.V128D, sp.CConfig.MchrDistance)) {
+				persons = append(persons, face.PersonId);
+			}
+		}
+   }
+
+   // persons = sp.removeDuplicatesUnordered(persons)
+   m := make(map[int64]int64)
+
+   for _, personId := range persons {
+
+   	profile, err := pp.GetPersonById(personId)
+
+   	if err != nil {
+			return 0, err;
+		}
+
+		m[profile.ProfileId] += 1
+  	sp.logger.Debug("Found same persons ", personId, " profileId ", profile.ProfileId)
+ 	}
+
+ 	var maxId, maxValue int64
+ 	maxId = 0
+ 	maxValue = 0
+ 	for k, v := range m {
+ 		if maxValue < v {
+ 			maxId = k
+ 			maxValue = v
+ 		}
+    sp.logger.Debug("k ", k, " v ", v)
+  }
+
+  sp.logger.Debug("maxId ", maxId, " maxValue ", maxValue)
+  return maxId, nil;
+
+}
+
 func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) error {
 	sp.logger.Debug("Updating ", len(faces), " faces into DB")
 	pp, err := sp.Persister.GetPartitionTx("FAKE")
@@ -331,6 +395,15 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 		for pid, f := range persIdMap {
 			p := new(model.Person)
 			p.Id = pid
+			foundId, err := sp.findProfileForFaces(faces)
+			if err != nil {
+				sp.persCache.mark_person_as_new(p.Id)
+				sp.logger.Info("Not found mark as new....")
+			} else {
+				p.ProfileId = foundId
+				sp.logger.Info("Set ProfileId to....... ", foundId)
+			}
+
 			p.CamId = camId
 			p.CreatedAt = uint64(createdAt)
 			p.LastSeenAt = f.CapturedAt
@@ -338,7 +411,7 @@ func (sp *SceneProcessor) persistSceneFaces(camId int64, faces []*model.Face) er
 			persons = append(persons, p)
 			newPers = append(newPers, p)
 			// marks the person as seen first time on the scene (affects faces filtering)
-			sp.persCache.mark_person_as_new(p.Id)
+			// sp.persCache.mark_person_as_new(p.Id)
 		}
 		err := pp.InsertPersons(newPers)
 		if err != nil {
