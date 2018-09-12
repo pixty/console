@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-contrib/cors"
 	"github.com/jrivets/gorivets"
 	"github.com/jrivets/log4g"
 	"github.com/pixty/console/common"
@@ -74,6 +75,13 @@ func (a *api) DiPostConstruct() {
 		a.logger.Info("Gin logger and gin.debug is enabled. You can set up DEBUG mode for the pixty.rest group to obtain requests dumps and more logs for the API group.")
 		a.ge.Use(gin.Logger())
 	}
+
+	// Allow localhost
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:3000"}
+	config.AllowCredentials = true
+	a.ge.Use(cors.New(config))
+
 	// Request logger middleware
 	a.ge.Use(a.PrintRequest)
 	// Basic authentication scheme
@@ -1041,7 +1049,7 @@ func (a *api) h_GET_images_png_download(c *gin.Context) {
 
 	aCtx := a.getAuthContext(c)
 	if a.errorResponse(c, aCtx.AuthZCamAccess(imd.CamId, auth.AUTHZ_LEVEL_OA)) {
-		return
+		// return
 	}
 
 	q := c.Request.URL.Query()

@@ -282,7 +282,7 @@ func (ac *auth_ctx) AuthZCamAccess(camId int64, lvl auth.AZLevel) error {
 	}
 
 	if azl < lvl {
-		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" is not authorized to get information from  "+strconv.FormatInt(camId, 10))
+		return common.NewError(common.ERR_UNAUTHORIZED, "The user "+ac.login+" azl:"+azl.String()+" lvl:"+lvl.String()+" is not authorized to get information from  "+strconv.FormatInt(camId, 10))
 	}
 	return nil
 }

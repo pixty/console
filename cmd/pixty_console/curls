@@ -1,0 +1,10 @@
+
+curl -XPOST -d '{"login":"test","password":"123456"}'  http://localhost:9080/sessions -H "Content-Type: application/json"
+
+curl -XPOST -d '{"login":"test","password":"123456"}'  http://localhost:9080/users -H "Content-Type: application/json"
+
+curl --user test:123456 -XPOST http://localhost:9080/cameras/1/newkey -H "Content-Type: application/json"
+
+./frame_processor --access_key 1 --secret_key HHsrtr6sv0
+
+

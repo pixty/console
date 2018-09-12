@@ -403,9 +403,9 @@ func (fd *face_desc) matchWithCacheRecord(mr *model.MatcherRecord, fcp *face_cmp
 	for i := 0; needed > 0 && needed+i <= total; i++ {
 		if common.MatchAdvancedV128D(fd.face.V128D, mr.Faces[i].V128D, fcp.maxDistance) {
 			needed--
-			fcp.logger.Trace("Positive match with faceId=", mr.Faces[i].Id, ", needed=", needed)
+			fcp.logger.Trace("Positive match with faceId=", mr.Faces[i].Id, ", needed=", needed, fcp.maxDistance)
 		} else {
-			fcp.logger.Trace("Negative match with faceId=", mr.Faces[i].Id, ", needed=", needed)
+			fcp.logger.Trace("Negative match with faceId=", mr.Faces[i].Id, ", needed=", needed, fcp.maxDistance)
 		}
 	}
 	fcp.logger.Trace("<<< done for ", fd, ", needed=", needed)

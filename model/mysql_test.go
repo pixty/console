@@ -18,6 +18,36 @@ func initMysqlPersister() *MysqlPersister {
 	return mp
 }
 
+func initReal() *MysqlPersister {
+	mp := NewMysqlPersister()
+	mp.Config = common.NewConsoleConfig()
+	mp.Config.MysqlDatasource = "root@/pixty?charset=utf8"
+	mp.DiInit()
+
+	return mp
+}
+
+func TestAllFaces(t *testing.T) {
+	mp := initReal()
+	pp, _ := mp.GetPartitionTx("test")
+
+	faces, err := pp.FindFaces(&FacesQuery{})
+	if err != nil {
+		t.Fatal("Fail when getting faces, err=", err)
+	}
+
+	for _, face := range faces {
+		for _, face2 := range faces {
+			if (common.MatchAdvancedV128D(face.V128D, face2.V128D, 0.6)) {
+				t.Log(face.Id, "->",face2.Id,"Same faces")
+			} else {
+				t.Log(face.Id, "->",face2.Id,"Different faces")
+			}
+		}
+   }
+
+}
+
 func TestFacePutGet(t *testing.T) {
 	mp := initMysqlPersister()
 

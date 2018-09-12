@@ -820,6 +820,7 @@ func (mpp *msql_part_tx) InsertPersons(persons []*Person) error {
 			}
 			q = q + "(?,?,?,?,?,?,?)"
 			vals = append(vals, p.Id, p.CamId, p.CreatedAt, p.LastSeenAt, p.ProfileId, p.PictureId, p.MatchGroup)
+			mpp.logger.Warn("InsertPersons(): p.ProfileId=", p.ProfileId)
 		}
 
 		_, err := mpp.executor().Exec(q, vals...)
