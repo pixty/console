@@ -10,6 +10,6 @@
 	"LbsMaxSize":"20g",
 	"ImgsPrefix": "",
 	"ImgsTmpTTLSec": 60,
-	"MchrDistance": 0.4,
+	"MchrDistance": 0.6,
 	"SweepOrphPersonsMins": 1
 }
